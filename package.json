@@ -1,0 +1,21 @@
+{
+  "name": "chess-club",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A friendly, kid-oriented chess app with an interactive coach. Runs entirely in the browser and deploys to Cloudflare Workers.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run --outdir=.dryrun",
+    "serve": "node scripts/serve.mjs",
+    "test": "node test-all.mjs",
+    "test:smoke": "node smoke-test.mjs",
+    "test:e2e": "node e2e-test.mjs",
+    "test:worker": "node worker-test.mjs",
+    "shots": "node shots.mjs"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.10.0"
+  }
+}

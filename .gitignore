@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build / deploy artefacts
+.dryrun/
+dist/
+.wrangler/
+
+# Wrangler local state
+.wrangler.toml.bak
+
+# Test + debug output
+shots/
+*.log
+wdev.log
+wdev-err.log
+wrangler-dev.log
+wrangler-err.log
+
+# Ad-hoc probe scripts used during development
+probe*.mjs
+probe.js
+probe-api.mjs
+probe-raw.mjs
+probe-timing.mjs
+probe-hang.mjs
+probe-app.mjs
+probe-pocket.mjs
+probe-layout.mjs
+probe-coach.mjs
+probe-sf.mjs
+probe-uci.mjs
+check-flip.mjs
+debug.mjs
+sfwasm.js
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*~

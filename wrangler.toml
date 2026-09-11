@@ -1,0 +1,63 @@
+#: Schema for editor validation / autocomplete.
+#: https://developers.cloudflare.com/workers/wrangler/configuration/
+name = "chess-club"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# ---------------------------------------------------------------------------
+# Static assets
+# ---------------------------------------------------------------------------
+# Everything in `assets/` is uploaded and served from Cloudflare's edge.
+# Because the files live at the root of `assets/`, the site is served from
+# the domain root (not /assets/...).
+#
+# `not_found_handling = "none"` means Cloudflare returns a real 404 for a
+# missing file instead of silently serving index.html. That matters here: if
+# `vendor/stockfish.wasm` ever went missing we want a genuine error (and the
+# app's own fallback logic) rather than an HTML page where JS expected wasm.
+#
+# The Worker in src/index.js turns genuine 404s for *routes* (paths with no
+# file extension) into index.html, so deep links still work.
+#
+# `run_worker_first = false` means Cloudflare returns a matching static file
+# immediately, and our Worker only runs as a fallback where we add security
+# headers and the SPA fallback.
+[assets]
+directory = "./assets"
+binding = "ASSETS"
+not_found_handling = "none"
+run_worker_first = false
+
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+[observability]
+enabled = true
+
+[vars]
+ENVIRONMENT = "production"
+
+# ---------------------------------------------------------------------------
+# Local development
+# ---------------------------------------------------------------------------
+# `npx wrangler dev` uses these settings. Nothing special is required — this
+# is a fully client-side app, so there is no database or KV to configure.
+[dev]
+port = 8787
+ip = "localhost"
+local_protocol = "http"
+
+# ---------------------------------------------------------------------------
+# Deployment targets
+# ---------------------------------------------------------------------------
+# Production (default):
+#   npx wrangler deploy
+#
+# To publish a separate preview Worker instead, uncomment this block and run
+#   npx wrangler deploy --env staging
+#
+# [env.staging]
+# name = "chess-club-staging"
+#
+# [env.staging.vars]
+# ENVIRONMENT = "staging"

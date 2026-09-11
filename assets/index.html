@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="description" content="A friendly chess game for kids. Play the computer or a friend, with a coach that explains every move." />
+<meta name="theme-color" content="#ffffff" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<title>Chess Club — Play &amp; Learn</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 45 45'%3E%3Crect width='45' height='45' fill='%23fff'/%3E%3Cpath d='M22.5 6.5c1.9 0 3.5 1.6 3.5 3.5 0 1.5-.9 2.7-2.2 3.2v3.1l6.6 4.9c.6.5.3 1.5-.5 1.5h-3.1v11.6h3.1c.7 0 1.2.6 1.2 1.2v2.3H14.4v-2.3c0-.7.5-1.2 1.2-1.2h3.1V20.2h-3.1c-.8 0-1.1-1-.5-1.5l6.6-4.9v-3.1c-1.3-.5-2.2-1.7-2.2-3.2 0-1.9 1.6-3.5 3-3.5z' fill='%23000'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+<a class="skip-link" href="#board-region">Skip to the chess board</a>
+
+<header class="app-header" role="banner">
+  <h1 class="app-title"><span class="logo-crown" aria-hidden="true">&#9819;</span> Chess Club</h1>
+  <p class="app-subtitle">Play. Think. Learn.</p>
+</header>
+
+<!-- ============================ ALERT BANNER ============================ -->
+<div id="alert-banner" class="alert-banner" role="status" aria-live="polite" hidden></div>
+
+<main class="app-main">
+
+  <!-- ============================ LEFT: BOARD ============================ -->
+  <section id="board-region" class="board-region" aria-label="Chess board and game controls">
+
+    <!-- Players / turn indicators -->
+    <div class="player-bar" id="player-bar">
+      <div class="player-card" id="player-top">
+        <span class="player-dot" aria-hidden="true"></span>
+        <span class="player-name" id="player-top-name">Computer</span>
+        <span class="player-captures" id="player-top-captures" aria-label="Pieces captured by this player"></span>
+      </div>
+      <div class="player-card" id="player-bottom">
+        <span class="player-dot" aria-hidden="true"></span>
+        <span class="player-name" id="player-bottom-name">You</span>
+        <span class="player-captures" id="player-bottom-captures" aria-label="Pieces captured by this player"></span>
+      </div>
+    </div>
+
+    <!-- Board -->
+    <div class="board-wrap">
+      <div class="board-frame">
+        <div id="board" class="board" role="grid" aria-label="Chess board" tabindex="0"
+             aria-describedby="board-instructions"></div>
+        <!-- Thinking / busy overlay -->
+        <div id="board-busy" class="board-busy" hidden aria-hidden="true">
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="busy-text" id="busy-text">Thinking…</span>
+        </div>
+      </div>
+      <p id="board-instructions" class="sr-only">
+        Use arrow keys to move a square cursor, Enter to pick up a piece, arrow keys to choose
+        a destination, and Enter to drop it. Press Escape to cancel. Press H for a hint.
+      </p>
+    </div>
+
+    <!-- Primary actions -->
+    <div class="action-row" role="group" aria-label="Game actions">
+      <button type="button" id="btn-new" class="btn btn-primary">New Game</button>
+      <button type="button" id="btn-undo" class="btn">Undo</button>
+      <button type="button" id="btn-hint" class="btn">Hint</button>
+      <button type="button" id="btn-flip" class="btn">Flip</button>
+      <button type="button" id="btn-resign" class="btn btn-danger">Resign</button>
+    </div>
+
+    <!-- Move list -->
+    <details class="move-list-box" id="move-list-box">
+      <summary>Move list (<span id="move-count">0</span>)</summary>
+      <ol id="move-list" class="move-list" aria-label="List of moves played"></ol>
+    </details>
+  </section>
+
+  <!-- ============================ RIGHT: PANEL ============================ -->
+  <aside class="side-panel" aria-label="Coach and settings">
+
+    <!-- COACH -->
+    <section class="panel-card coach-card" aria-labelledby="coach-heading">
+      <h2 id="coach-heading" class="panel-heading">
+        <span aria-hidden="true">&#9822;</span> Coach
+      </h2>
+      <div id="coach-feed" class="coach-feed" role="log" aria-live="polite" aria-relevant="additions">
+        <!-- messages injected here -->
+      </div>
+
+      <div class="coach-footer">
+        <div class="eval-meter" aria-hidden="true">
+          <div class="eval-track"><div class="eval-fill" id="eval-fill"></div></div>
+          <span class="eval-label" id="eval-label">Even game</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="panel-card" aria-labelledby="settings-heading">
+      <h2 id="settings-heading" class="panel-heading"><span aria-hidden="true">&#9881;</span> Settings</h2>
+
+      <fieldset class="field-group">
+        <legend>Who are you playing?</legend>
+        <div class="segmented" role="radiogroup" aria-label="Game mode">
+          <label class="seg">
+            <input type="radio" name="mode" value="computer" checked />
+            <span>Vs Computer</span>
+          </label>
+          <label class="seg">
+            <input type="radio" name="mode" value="human" />
+            <span>2 Players</span>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="field-group" id="difficulty-group">
+        <legend>How tough should the computer be?</legend>
+        <div class="segmented segmented-vertical" role="radiogroup" aria-label="Difficulty">
+          <label class="seg">
+            <input type="radio" name="difficulty" value="beginner" checked />
+            <span><strong>Beginner</strong><small>Just learning</small></span>
+          </label>
+          <label class="seg">
+            <input type="radio" name="difficulty" value="casual" />
+            <span><strong>Casual</strong><small>Plays for real</small></span>
+          </label>
+          <label class="seg">
+            <input type="radio" name="difficulty" value="challenger" />
+            <span><strong>Challenger</strong><small>Very strong</small></span>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="field-group">
+        <legend>Options</legend>
+        <label class="switch-row">
+          <input type="checkbox" id="opt-coach" checked />
+          <span>Coach tips</span>
+        </label>
+        <label class="switch-row">
+          <input type="checkbox" id="opt-animations" />
+          <span>Animations <small>(off is best for e-ink)</small></span>
+        </label>
+        <label class="switch-row">
+          <input type="checkbox" id="opt-autoplay" checked />
+          <span>2-player: flip board each turn</span>
+        </label>
+        <label class="switch-row">
+          <input type="checkbox" id="opt-sound" />
+          <span>Sound effects</span>
+        </label>
+      </fieldset>
+
+      <div class="engine-status" id="engine-status" aria-live="polite">
+        <span class="status-light" id="status-light" aria-hidden="true"></span>
+        <span id="status-text">Starting engine…</span>
+      </div>
+    </section>
+
+    <section class="panel-card help-card" aria-labelledby="help-heading">
+      <h2 id="help-heading" class="panel-heading"><span aria-hidden="true">&#10067;</span> How to play</h2>
+      <ul class="help-list">
+        <li><strong>Tap a piece</strong> to see where it can go.</li>
+        <li><strong>Tap a glowing square</strong> to move there.</li>
+        <li><strong>Hint</strong> shows a good idea.</li>
+        <li>Goal: <strong>protect your king</strong>, grab the <strong>center</strong>, and don't leave pieces <strong>hanging</strong>!</li>
+      </ul>
+    </section>
+
+  </aside>
+</main>
+
+<footer class="app-footer">
+  <p>Chess Club runs entirely in your browser. Nothing is sent to a server.</p>
+</footer>
+
+<!-- Promotion picker -->
+<div id="promotion-dialog" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="promo-title">
+  <div class="modal-card">
+    <h2 id="promo-title">Your pawn becomes…</h2>
+    <div class="promo-choices" id="promo-choices"></div>
+    <button type="button" class="btn" id="promo-cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- Game over dialog -->
+<div id="result-dialog" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="result-title">
+  <div class="modal-card">
+    <h2 id="result-title">Game over</h2>
+    <p id="result-text" class="result-text"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-primary" id="result-again">Play again</button>
+      <button type="button" class="btn" id="result-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
