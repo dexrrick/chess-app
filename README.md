@@ -233,10 +233,11 @@ Neither script is uploaded by `wrangler deploy` — they live outside `assets/`.
 ## Testing
 
 ```bash
-npm test              # all four suites, starts its own server
+npm test              # all five suites, starts its own server
 npm run test:worker   # Worker unit tests (no browser, no network)
 npm run test:engine   # engine-layer unit tests (fake UCI worker, no browser)
-npm run test:smoke    # 37 browser checks: rendering, pieces, engine, coach, layout
+npm run test:coach    # coach tier + wording unit tests (no browser)
+npm run test:smoke    # 38 browser checks: rendering, pieces, engine, coach, layout
 npm run test:e2e      # scenario checks: checkmate, promotion, offline, concurrency…
 ```
 
@@ -263,6 +264,13 @@ worker, so the queueing that makes concurrent requests safe is tested
 deterministically: overlapping requests never run two searches at once, a late
 `bestmove` from an abandoned search is not delivered to the next one, and a
 timed-out or failed search degrades instead of hanging.
+
+The coach suite (`npm run test:coach`) pins the move-grading table to its
+labels: every declared tier must be reachable by some centipawn loss, the
+ceilings must increase from best to worst, grading must never improve as the
+loss grows, `brilliant` is reserved for an engine-best move with a special
+quality, and the hint wording must differ by tier rather than always falling
+back to the same sentence.
 
 Capture reference screenshots with `npm run shots` (writes to `shots/`).
 

@@ -17,6 +17,7 @@
     "test:e2e": "node e2e-test.mjs",
     "test:worker": "node worker-test.mjs",
     "test:engine": "node engine-test.mjs",
+    "test:coach": "node coach-test.mjs",
     "shots": "node shots.mjs",
     "preview": "node preview/render-preview.mjs",
     "preview:verify": "node preview/verify-board.mjs"

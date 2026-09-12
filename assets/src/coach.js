@@ -14,16 +14,25 @@ export const TIERS = {
   brilliant: { key: 'brilliant', label: 'Brilliant!', max: 0, icon: '\u2605' },
   best: { key: 'best', label: 'Best move!', max: 10, icon: '\u2605' },
   good: { key: 'good', label: 'Solid', max: 50, icon: '\u2713' },
-  okay: { key: 'good', label: 'Okay', max: 120, icon: '\u2713' },
+  okay: { key: 'okay', label: 'Okay', max: 120, icon: '\u2713' },
   inaccuracy: { key: 'inaccuracy', label: 'Hmm…', max: 250, icon: '\u26A0' },
   mistake: { key: 'mistake', label: 'Careful!', max: 500, icon: '\u26A0' },
   blunder: { key: 'blunder', label: 'Oops!', max: Infinity, icon: '\u2716' }
 };
 
+/**
+ * Loss-graded tiers, best → worst. `brilliant` is deliberately absent: it is
+ * gated on the move's *quality* rather than on a centipawn ceiling, so it is
+ * decided separately in classify().
+ */
+const LOSS_TIERS = ['best', 'good', 'okay', 'inaccuracy', 'mistake'];
+
 /** Friendly openers per tier, chosen at random so it doesn't feel robotic. */
 const OPENERS = {
   brilliant: ['Wow — spot on!', 'Brilliant!', 'Amazing move!'],
+  best: ['That is the one.', 'Exactly right!', 'Good choice.'],
   good: ['Nice one!', 'Good move.', 'That works well.'],
+  okay: ['Fine move.', 'That is okay.', 'Playable — nothing given away.'],
   inaccuracy: ['Hmm, careful.', 'Almost — but look again.', 'Not the best, but okay.'],
   mistake: ['Careful!', 'That one is risky.', 'Hmm, that gives something away.'],
   blunder: ['Oops!', 'Oh no — watch out!', 'That one hurts a bit.']
@@ -43,22 +52,21 @@ const HOME_RANK = { w: ['a1', 'b1', 'c1', 'd1', 'e1', 'f1', 'g1', 'h1', 'a2', 'b
  *                              opponentBestReplyIsCapture, hungPiece, phase }
  */
 export function classify(loss, isBest, details = {}) {
-  let tier;
-  if (isBest || loss <= 10) tier = 'brilliant';
-  else if (loss <= 50) tier = 'good';
-  else if (loss <= 120) tier = 'good';
-  else if (loss <= 250) tier = 'inaccuracy';
-  else if (loss <= 500) tier = 'mistake';
-  else tier = 'blunder';
-
-  // A capture that also gives check and is best is genuinely brilliant;
-  // a "best" move that is a quiet developing move is merely Good.
-  if (tier === 'brilliant') {
+  // The engine's own pick (or an equally good move). It only counts as
+  // "brilliant" when the move also has a special quality — a quiet developing
+  // move that merely ties for best is just the best available move.
+  if (isBest || loss <= TIERS.best.max) {
     const special = details.wasCapture || details.wasCheck || details.wasCastle ||
       details.isSacrifice || details.wasPromotion;
-    if (!special) tier = 'good';
+    return special ? 'brilliant' : 'best';
   }
-  return tier;
+
+  // Every remaining tier is reachable, and its ceiling comes from TIERS so the
+  // thresholds cannot drift out of sync with the labels.
+  for (const tier of LOSS_TIERS) {
+    if (loss <= TIERS[tier].max) return tier;
+  }
+  return 'blunder';
 }
 
 /**
@@ -76,7 +84,7 @@ export function describeMove(ctx) {
   } = ctx;
 
   const opener = pick(OPENERS[tier] || OPENERS.good);
-  const meta = TIERS[Object.keys(TIERS).find((k) => TIERS[k].key === tier) || 'good'] || TIERS.good;
+  const meta = TIERS[tier] || TIERS.good;
 
   const reasons = [];
   const side = color === 'w' ? 'White' : 'Black';
@@ -108,7 +116,7 @@ export function describeMove(ctx) {
       reasons.push('it is safe, but a better move existed. Look for moves that **develop a piece** or **control the centre**.');
     }
   } else {
-    // good / brilliant
+    // good / best / okay / brilliant — the solid-and-safe branch
     if (details.wasCastle) {
       reasons.push('castling tucks your king away safely and wakes up your rook. Very grown-up chess!');
     }
@@ -155,16 +163,20 @@ export function describeMove(ctx) {
 
 /**
  * Describe a hint in friendly language.
+ *
+ * `tier` is the quality of the recommended move (see classify). The engine's
+ * top choice is passed in as 'best', which is what earns the stronger line —
+ * without a tier every hint fell back to the same generic sentence.
  */
 export function describeHint(hintCtx) {
-  const { san, from, to, moveNumber, tier } = hintCtx;
-  const bits = [
+  const { san, from, to, tier } = hintCtx;
+  const strong = tier === 'brilliant' || tier === 'best';
+  return [
     `Try ${san} — move from ${from} to ${to}.`,
-    tier === 'brilliant' || tier === 'best'
+    strong
       ? 'This is a strong idea. Look at what it attacks!'
       : 'This keeps everything safe and makes your position a bit better.'
-  ];
-  return bits.join(' ');
+  ].join(' ');
 }
 
 /** Opening principles shown at the start of a game. */

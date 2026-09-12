@@ -752,6 +752,7 @@ function TIERS_TO_CLASS(tier) {
     case 'best':
       return 'brilliant';
     case 'good':
+    case 'okay':          // shares the "solid" styling; no separate rule needed
       return 'good';
     case 'inaccuracy':
       return 'inaccuracy';
@@ -1092,7 +1093,7 @@ async function hint() {
         tier: 'info',
         title: 'Hint',
         move: san,
-        text: describeHint({ san, from: m.from, to: m.to, moveNumber: state.history.length + 1 })
+        text: describeHint({ san, from: m.from, to: m.to, tier: 'best' })
       });
     } else {
       addBubble({ tier: 'info', title: 'Hint', text: 'I could not find a good move — try looking for a piece you can protect or a square in the centre.' });

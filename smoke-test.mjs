@@ -216,6 +216,12 @@ await page.waitForFunction(
 ).catch(() => {});
 const hintTxt = await page.$eval('#coach-feed', (e) => e.textContent);
 check('hint gives advice', /Hint/i.test(hintTxt));
+// The hint bubble is the most recent one. Its wording must reflect the tier of
+// the recommended move (the engine's own pick), not the generic fallback — the
+// call site used to pass no tier at all, so this sentence never varied.
+const hintBubble = await page.$eval('#coach-feed .bubble:last-child', (e) => e.textContent);
+check('hint uses the strong-idea wording, not the generic line',
+  /strong idea/i.test(hintBubble), hintBubble.slice(0, 140));
 const hintSquares = await page.evaluate(() =>
   [...document.querySelectorAll('.square.hint-from, .square.hint-to')].map((e) => e.dataset.square));
 check('hint highlights squares on the board', hintSquares.length >= 1, hintSquares.join(','));
