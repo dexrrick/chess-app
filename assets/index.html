@@ -50,6 +50,16 @@
         <div id="board" class="board" role="grid" aria-label="Chess board" tabindex="0"
              aria-describedby="board-instructions"
              aria-rowcount="8" aria-colcount="8"></div>
+        <!-- Last-move arrow. Purely decorative: the move is announced in the
+             coach feed and listed under "Move list", so this is hidden from
+             assistive tech. Geometry lives in drawMoveArrow() in app.js. -->
+        <svg id="move-arrow" class="move-arrow" viewBox="0 0 8 8"
+             preserveAspectRatio="none" aria-hidden="true" focusable="false" hidden>
+          <line class="move-arrow-casing" />
+          <line class="move-arrow-line" />
+          <polygon class="move-arrow-head-casing" />
+          <polygon class="move-arrow-head" />
+        </svg>
         <!-- Thinking / busy overlay -->
         <div id="board-busy" class="board-busy" hidden aria-hidden="true">
           <span class="spinner" aria-hidden="true"></span>

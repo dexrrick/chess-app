@@ -252,6 +252,8 @@ The suite covers, among other things:
 * 2-player auto-flip puts the side to move at the bottom
 * blocking the engine falls back to the Pocket Bot, which still plays legally
 * keyboard-only play (arrows + Enter, `H` for a hint)
+* the last-move arrow is drawn for the move just played, follows a board flip,
+  and clears with the game
 * squares are ≥ 48 px at iPad portrait, iPad landscape and iPhone portrait
 * the Worker returns 404 for a missing asset but the shell for a deep link
 * `assets/_headers` and the Worker agree on the security headers
@@ -292,6 +294,7 @@ Capture reference screenshots with `npm run shots` (writes to `shots/`).
 | **New Game** | Resets the board; you always play White |
 | **Undo** | Takes back your move — and the computer's reply, in vs-computer mode |
 | **Hint** | Highlights a strong from/to square and explains the idea |
+| **Move arrow** | A translucent arrow trails the last move, so a reply that lands instantly is still visible |
 | **Flip** | Rotates the board 180° |
 | **Resign** | Ends the game in favour of your opponent |
 

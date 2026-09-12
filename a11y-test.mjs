@@ -281,6 +281,20 @@ const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
     (await page.evaluate(() => window.__chessClub.state.flipped)) === false);
 }
 
+/* ========================= 2b. decorative overlay ======================== */
+{
+  const arrowHidden = await page.$eval('#move-arrow', (e) => e.getAttribute('aria-hidden'));
+  check('the last-move arrow is hidden from assistive tech',
+    arrowHidden === 'true', String(arrowHidden));
+
+  // Decoration must not add nodes: nothing in the tree should be a bare graphic.
+  const { nodes } = await axTree();
+  const graphics = nodes.filter((n) =>
+    ['img', 'graphics-document', 'graphics-symbol'].includes(roleOf(n)));
+  check('no decorative graphics leak into the accessibility tree',
+    graphics.length === 0, graphics.map(roleOf).join(',') || 'none');
+}
+
 console.log('\n========================================');
 console.log(failures === 0 ? '  ALL A11Y TESTS PASSED' : `  ${failures} CHECK(S) FAILED`);
 console.log('========================================\n');

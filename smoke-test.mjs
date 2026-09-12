@@ -187,6 +187,57 @@ const histAfterReply = await page.evaluate(() =>
 check('computer replied as Black', histAfterReply.some((h) => h.startsWith('b:')),
   histAfterReply.join(' '));
 
+/* --------------------------------------- 6b. last-move arrow (see app.js) */
+// An engine reply lands almost instantly, so the arrow is what makes it
+// legible. Measure it against the real square positions, and assert on what is
+// RENDERED — an <svg> has no `hidden` property, so a property check would pass
+// even while the overlay is display:none.
+const measureArrow = () => page.evaluate(() => {
+  const svg = document.querySelector('#move-arrow');
+  const line = svg.querySelector('.move-arrow-line');
+  const board = document.querySelector('.board').getBoundingClientRect();
+  const unit = board.width / 8;
+  const centreOf = (name) => {
+    const r = document.querySelector(`.square[data-square="${name}"]`).getBoundingClientRect();
+    return {
+      x: (r.left + r.width / 2 - board.left) / unit,
+      y: (r.top + r.height / 2 - board.top) / unit
+    };
+  };
+  const move = window.__chessClub.state.lastMove;
+  return {
+    display: getComputedStyle(svg).display,
+    width: Math.round(svg.getBoundingClientRect().width),
+    move,
+    from: centreOf(move.from),
+    to: centreOf(move.to),
+    start: { x: parseFloat(line.getAttribute('x1')), y: parseFloat(line.getAttribute('y1')) },
+    end: { x: parseFloat(line.getAttribute('x2')), y: parseFloat(line.getAttribute('y2')) }
+  };
+});
+const gap = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+
+const arrow = await measureArrow();
+check('last-move arrow is rendered',
+  arrow.display !== 'none' && arrow.width > 0, `${arrow.display} ${arrow.width}px`);
+check('the arrow is drawn for the move that was just played',
+  gap(arrow.start, arrow.from) < 0.4 && gap(arrow.end, arrow.to) < 0.4,
+  `${JSON.stringify(arrow.move)} start=${gap(arrow.start, arrow.from).toFixed(2)} end=${gap(arrow.end, arrow.to).toFixed(2)}`);
+check('the arrowhead points at the destination, not back at the origin',
+  gap(arrow.end, arrow.to) < gap(arrow.start, arrow.to),
+  `${gap(arrow.end, arrow.to).toFixed(2)} vs ${gap(arrow.start, arrow.to).toFixed(2)}`);
+
+// The arrow is placed from the same visual order the squares are laid out in,
+// so it has to follow a flip (and flipping twice is non-destructive).
+await clickButton('#btn-flip');
+await new Promise((r) => setTimeout(r, 300));
+const flippedArrow = await measureArrow();
+check('the arrow follows a flip',
+  gap(flippedArrow.start, flippedArrow.from) < 0.4 && gap(flippedArrow.end, flippedArrow.to) < 0.4,
+  `start=${gap(flippedArrow.start, flippedArrow.from).toFixed(2)} end=${gap(flippedArrow.end, flippedArrow.to).toFixed(2)}`);
+await clickButton('#btn-flip');
+await new Promise((r) => setTimeout(r, 300));
+
 /* ------------------------------------------------------- 7. coach explained */
 await page.waitForFunction(
   () => document.querySelectorAll('#coach-feed .bubble').length >= 3,
@@ -270,6 +321,9 @@ await clickButton('#btn-new');
 await new Promise((r) => setTimeout(r, 300));
 const freshFen = await page.evaluate(() => window.__chessClub.state.chess.fen());
 check('new game resets position', freshFen.startsWith('rnbqkbnr'), freshFen.split(' ')[0]);
+check('the last-move arrow clears with the game',
+  await page.evaluate(() => getComputedStyle(document.querySelector('#move-arrow')).display === 'none'),
+  await page.evaluate(() => getComputedStyle(document.querySelector('#move-arrow')).display));
 
 /* --------------------------------------------------- 13. touch target size */
 async function measureSquares(width, height, label) {

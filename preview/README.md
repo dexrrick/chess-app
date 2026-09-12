@@ -24,8 +24,10 @@ Open `preview/pieces-preview.html` in a browser for a live version.
 
 `verify-board.mjs` loads the real `assets/index.html`, asserts the two-layer
 markup is present *and* that the stylesheet colours it (a black piece must get
-white detail strokes), and writes `preview/out/app-board.png`. It is the quick
-way to check a piece change without waiting on the full browser suites.
+white detail strokes), plays a move and checks the last-move arrow is drawn
+against the right squares, and writes screenshots to `preview/out/`
+(`app-board.png`, and `app-board-lastmove.png` with the arrow on screen). It is
+the quick way to check a board change without waiting on the full browser suites.
 
 Point it at a different origin with `VERIFY_URL`. That is how the app gets
 checked under the *real* edge headers, since the plain static server sends no

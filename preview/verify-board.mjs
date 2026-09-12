@@ -175,6 +175,72 @@ try {
   await frame.screenshot({ path: path.join(OUT, 'app-board.png') });
   console.log('  saved preview/out/app-board.png');
 
+  // ---- last-move arrow -----------------------------------------------------
+  // Play a move and let the computer reply, so the arrow is on screen.
+  await page.click('.square[data-square="e2"]');
+  await new Promise((r) => setTimeout(r, 150));
+  await page.click('.square[data-square="e4"]');
+  await page.waitForFunction(
+    () => window.__chessClub.state.history.length >= 2 || window.__chessClub.state.gameOver,
+    { timeout: 30000 }
+  ).catch(() => {});
+  await new Promise((r) => setTimeout(r, 400));
+
+  // Measure the arrow against the real square positions rather than against
+  // drawMoveArrow's own arithmetic.
+  const geom = await page.evaluate(() => {
+    const board = document.querySelector('.board').getBoundingClientRect();
+    const unit = board.width / 8;
+    const centreOf = (name) => {
+      const r = document.querySelector(`.square[data-square="${name}"]`).getBoundingClientRect();
+      return {
+        x: (r.left + r.width / 2 - board.left) / unit,
+        y: (r.top + r.height / 2 - board.top) / unit
+      };
+    };
+    const svg = document.querySelector('#move-arrow');
+    const line = svg.querySelector('.move-arrow-line');
+    const move = window.__chessClub.state.lastMove;
+    const svgRect = svg.getBoundingClientRect();
+    return {
+      // Assert on what is actually rendered, not on a property we happened to
+      // set: an SVG has no `hidden` property, so only the rendered state tells
+      // the truth.
+      display: getComputedStyle(svg).display,
+      renderedWidth: Math.round(svgRect.width),
+      renderedHeight: Math.round(svgRect.height),
+      move,
+      from: centreOf(move.from),
+      to: centreOf(move.to),
+      x1: parseFloat(line.getAttribute('x1')),
+      y1: parseFloat(line.getAttribute('y1')),
+      x2: parseFloat(line.getAttribute('x2')),
+      y2: parseFloat(line.getAttribute('y2')),
+      head: svg.querySelector('.move-arrow-head').getAttribute('points')
+    };
+  });
+
+  const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+  const start = { x: geom.x1, y: geom.y1 };
+  const end = { x: geom.x2, y: geom.y2 };
+  const tip = geom.head.split(' ')[0].split(',').map(Number);
+
+  check('the move arrow is rendered for the last move',
+    geom.display !== 'none' && geom.renderedWidth > 0 && geom.renderedHeight > 0,
+    `${geom.display} ${geom.renderedWidth}x${geom.renderedHeight} ${JSON.stringify(geom.move)}`);
+  check('the arrow starts on the square the piece came from',
+    dist(start, geom.from) < 0.4, `${dist(start, geom.from).toFixed(2)} squares`);
+  check('the arrowhead points at the destination square',
+    dist(end, geom.to) < 0.4 && dist(end, geom.to) < dist(start, geom.to),
+    `${dist(end, geom.to).toFixed(2)} squares`);
+  check('the arrowhead tip lands on the destination square',
+    Math.hypot(tip[0] - geom.to.x, tip[1] - geom.to.y) < 0.05,
+    `tip ${tip.join(',')} vs centre ${geom.to.x},${geom.to.y}`);
+
+  const moved = await page.$('.board-frame');
+  await moved.screenshot({ path: path.join(OUT, 'app-board-lastmove.png') });
+  console.log('  saved preview/out/app-board-lastmove.png');
+
   const realErrors = errors.filter((e) => !/favicon/i.test(e));
   check('no page/console errors', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
 } finally {

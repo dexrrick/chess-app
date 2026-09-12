@@ -167,6 +167,7 @@ const dom = {};
 
 function cacheDom() {
   dom.board = $('#board');
+  dom.moveArrow = $('#move-arrow');
   dom.alert = $('#alert-banner');
   dom.busy = $('#board-busy');
   dom.busyText = $('#busy-text');
@@ -244,6 +245,73 @@ function boardRows() {
 }
 
 /**
+ * Draw the arrow marking the last move.
+ *
+ * The engine answers almost instantly, so without this the reply reads as
+ * "something changed somewhere on the board". Decorative only — the move is
+ * already announced in the coach feed and listed under "Move list", hence
+ * aria-hidden in the markup.
+ *
+ * Everything is in board units: the SVG's viewBox is 0 0 8 8 with
+ * preserveAspectRatio="none", so one unit is exactly one square. Nothing has to
+ * be measured, and because the centres come from the same visual order the
+ * squares are laid out in, it stays correct when the board is flipped.
+ */
+function drawMoveArrow() {
+  const arrow = dom.moveArrow;
+  if (!arrow) return;
+
+  const move = state.lastMove;
+  const order = visualOrder();
+  const from = move ? order.indexOf(move.from) : -1;
+  const to = move ? order.indexOf(move.to) : -1;
+  // NB: `hidden` is an HTMLElement property and SVGElement does not have it, so
+  // the attribute must be toggled directly — assigning `arrow.hidden` would only
+  // set a JS expando and style.css would still hide it.
+  if (from === -1 || to === -1) {
+    arrow.setAttribute('hidden', '');
+    return;
+  }
+  arrow.removeAttribute('hidden');
+
+  const centre = (i) => ({ x: (i % 8) + 0.5, y: Math.floor(i / 8) + 0.5 });
+  const a = centre(from);
+  const b = centre(to);
+
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+
+  const TAIL = 0.18;   // start the line clear of the piece that moved
+  const HEAD = 0.26;   // arrowhead length
+  const HALF = 0.155;  // arrowhead half-width (kept modest so the piece the
+                       // arrow points at stays readable through it)
+
+  const start = { x: a.x + ux * TAIL, y: a.y + uy * TAIL };
+  const end = { x: b.x - ux * HEAD, y: b.y - uy * HEAD };
+  const nx = -uy;      // unit normal, for the head's two back corners
+  const ny = ux;
+  const r = (n) => n.toFixed(3);
+
+  for (const cls of ['.move-arrow-casing', '.move-arrow-line']) {
+    const line = arrow.querySelector(cls);
+    line.setAttribute('x1', r(start.x));
+    line.setAttribute('y1', r(start.y));
+    line.setAttribute('x2', r(end.x));
+    line.setAttribute('y2', r(end.y));
+  }
+  const head = [
+    `${r(b.x)},${r(b.y)}`,
+    `${r(end.x + nx * HALF)},${r(end.y + ny * HALF)}`,
+    `${r(end.x - nx * HALF)},${r(end.y - ny * HALF)}`
+  ].join(' ');
+  arrow.querySelector('.move-arrow-head').setAttribute('points', head);
+  arrow.querySelector('.move-arrow-head-casing').setAttribute('points', head);
+}
+
+/**
  * Put every square in the row it belongs to for the current orientation.
  *
  * Because the rows are real `role="row"` elements, the DOM order has to match
@@ -289,6 +357,7 @@ function visualOrder() {
 
 function renderBoard() {
   layoutBoard();
+  drawMoveArrow();
   const order = visualOrder();
   const board = state.chess.board();   // board[0] is rank 8
   const turn = state.chess.turn();
