@@ -209,13 +209,22 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   padding: 0;
 }
 
+/* Eight rows, each of which is a grid of eight squares. The rows are real
+   elements (not implied by CSS) because they carry role="row" — see buildBoard()
+   in app.js. */
 .board {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
   width: 100%;
   height: 100%;
   touch-action: manipulation;
+}
+
+.board-row {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  min-width: 0;
+  min-height: 0;
 }
 
 .square {
@@ -661,6 +670,9 @@ body:not(.animations-enabled) .spinner { animation-duration: 1.6s; }
     width: 100%;
   }
   .square { border-width: 1px; }
+  /* Coordinates are dropped at this size to keep the squares clean at 48px; the
+     square name is still part of each cell's accessible label (see renderBoard
+     in app.js), so nothing is lost to assistive tech. */
   .square .coord { display: none; }
   .action-row { grid-template-columns: repeat(2, 1fr); }
   .move-list { columns: 1; max-height: 18vh; }
@@ -693,3 +705,16 @@ body:not(.animations-enabled) .spinner { animation-duration: 1.6s; }
   :root { --anim-speed: 0ms; }
   .spinner { animation: none; border-top-color: var(--black); }
 }
+
+/* ------------------- Windows High Contrast / forced colours -------------- */
+/* Forced-colours mode replaces background colours, which would flatten the
+   board into a featureless grid: the light and dark squares — and therefore the
+   black and white pieces standing on them — would stop being distinguishable.
+   This palette is already pure black/white/grey, so opting the board out keeps
+   it readable while the rest of the UI still adapts to the user's theme.
+   `forced-color-adjust` is inherited, so the frame covers its whole subtree. */
+@media (forced-colors: active) {
+  .board-frame { forced-color-adjust: none; }
+  .square { border-color: var(--black); }
+}
+

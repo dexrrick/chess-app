@@ -200,8 +200,24 @@ function cacheDom() {
 /*  Board rendering                                                           */
 /* ========================================================================== */
 
+/**
+ * Build the 8x8 board.
+ *
+ * The squares live inside real `role="row"` elements. A `role="grid"` whose
+ * children are gridcells with no rows in between is invalid, and assistive tech
+ * is entitled to ignore the structure it cannot make sense of — so the rows are
+ * part of the markup rather than implied by the visual layout.
+ */
 function buildBoard() {
   dom.board.innerHTML = '';
+  const rows = [];
+  for (let r = 0; r < 8; r++) {
+    const row = document.createElement('div');
+    row.className = 'board-row';
+    row.setAttribute('role', 'row');
+    rows.push(row);
+    dom.board.appendChild(row);
+  }
   for (let r = 0; r < 8; r++) {
     for (let f = 0; f < 8; f++) {
       const sq = squareName(f, r);
@@ -212,9 +228,49 @@ function buildBoard() {
       btn.setAttribute('role', 'gridcell');
       btn.setAttribute('aria-label', sq);
       btn.tabIndex = -1;
-      dom.board.appendChild(btn);
+      rows[r].appendChild(btn);
     }
   }
+  laidOutFlipped = null;     // let layoutBoard() place them for the current flip
+  layoutBoard();
+}
+
+/** The orientation the DOM is currently laid out for. */
+let laidOutFlipped = null;
+
+/** The 8 row elements, in on-screen order. */
+function boardRows() {
+  return [...dom.board.querySelectorAll('.board-row')];
+}
+
+/**
+ * Put every square in the row it belongs to for the current orientation.
+ *
+ * Because the rows are real `role="row"` elements, the DOM order has to match
+ * what is on screen — otherwise the accessibility tree would announce the wrong
+ * squares after a flip. That is why flipping re-appends nodes instead of
+ * shuffling them with CSS `order`, which would leave the structure describing a
+ * different board from the one being displayed.
+ */
+function layoutBoard() {
+  if (laidOutFlipped === state.flipped) return;
+
+  // Moving a node with appendChild drops focus from it, so remember where the
+  // keyboard was and put it back afterwards — otherwise a flip would silently
+  // end keyboard play (the board's key handling needs focus on a square).
+  const focused = document.activeElement;
+  const focusedSquare = (focused && focused.dataset && focused.dataset.square) || null;
+  const focusedBoard = focused === dom.board;
+
+  const rows = boardRows();
+  visualOrder().forEach((name, idx) => {
+    const el = squareEl(name);
+    if (el) rows[Math.floor(idx / 8)].appendChild(el);
+  });
+  laidOutFlipped = state.flipped;
+
+  if (focusedSquare) squareEl(focusedSquare)?.focus();
+  else if (focusedBoard) dom.board.focus();
 }
 
 /** Return the square element for a name, honouring the flip state. */
@@ -232,6 +288,7 @@ function visualOrder() {
 }
 
 function renderBoard() {
+  layoutBoard();
   const order = visualOrder();
   const board = state.chess.board();   // board[0] is rank 8
   const turn = state.chess.turn();
@@ -241,9 +298,6 @@ function renderBoard() {
   order.forEach((name, idx) => {
     const el = squareEl(name);
     if (!el) return;
-
-    // Reattach in visual order — using CSS `order` keeps DOM stable & cheap.
-    el.style.order = String(idx);
 
     const file = name[0];
     const rank = name[1];
@@ -279,7 +333,7 @@ function renderBoard() {
     const isBottomEdge = idx >= 56;
     const isLeftEdge = idx % 8 === 0;
     el.querySelectorAll('.coord').forEach((c) => c.remove());
-    if (state.flipped ? isBottomEdge : isBottomEdge) {
+    if (isBottomEdge) {
       // show file letter on the bottom rank of the *visual* board
       const span = document.createElement('span');
       span.className = 'coord file';
@@ -663,6 +717,92 @@ function scheduleEvalRefresh() {
 /*  Promotion dialog                                                          */
 /* ========================================================================== */
 
+/* ========================================================================== */
+/*  Modal dialogs                                                             */
+/* ========================================================================== */
+
+/**
+ * Take everything except the open dialog out of play.
+ *
+ * `aria-modal` only *claims* the rest is inert; the `inert` attribute makes it
+ * true, for the keyboard and for assistive technology alike.
+ */
+function setBackgroundInert(inert) {
+  for (const el of document.body.children) {
+    if (el === dom.promotionDialog || el === dom.resultDialog) continue;
+    if (el.tagName === 'SCRIPT') continue;
+    if (inert) el.setAttribute('inert', '');
+    else el.removeAttribute('inert');
+  }
+}
+
+/** Focusable, currently-visible controls inside `root`. */
+function focusableIn(root) {
+  const selector = 'button:not([disabled]), [href], input:not([disabled]), '
+    + 'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  return [...root.querySelectorAll(selector)].filter((el) => el.getClientRects().length > 0);
+}
+
+/** Whichever dialog is open right now, or null. */
+function openDialogEl() {
+  if (!dom.promotionDialog.hidden) return dom.promotionDialog;
+  if (!dom.resultDialog.hidden) return dom.resultDialog;
+  return null;
+}
+
+/** Give the keyboard back to the board, on the square the cursor is on. */
+function restoreBoardFocus() {
+  const square = squareEl(state.cursor);
+  if (square) square.focus();
+  else dom.board.focus();
+}
+
+function openDialog(dialog, focusTarget) {
+  dialog.hidden = false;
+  setBackgroundInert(true);
+  const target = focusTarget || focusableIn(dialog)[0];
+  if (target) target.focus();
+}
+
+function closeDialog(dialog) {
+  if (dialog.hidden) return;      // already closed: leave focus alone
+  dialog.hidden = true;
+  if (dialog === dom.promotionDialog) state.pendingPromotion = null;
+  setBackgroundInert(false);
+  restoreBoardFocus();
+}
+
+/** Escape closes a dialog, and Tab cycles within it instead of escaping. */
+function onDialogKeydown(e) {
+  const dialog = openDialogEl();
+  if (!dialog) return;
+
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeDialog(dialog);
+    return;
+  }
+  if (e.key !== 'Tab') return;
+
+  const items = focusableIn(dialog);
+  if (items.length === 0) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  if (e.shiftKey && (active === first || !dialog.contains(active))) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+/* ========================================================================== */
+/*  Promotion dialog                                                          */
+/* ========================================================================== */
+
 function showPromotionDialog(color) {
   dom.promoChoices.innerHTML = '';
   for (const type of ['q', 'r', 'b', 'n']) {
@@ -673,21 +813,16 @@ function showPromotionDialog(color) {
     btn.setAttribute('aria-label', `Promote to ${PIECE_NAMES[type]}`);
     btn.addEventListener('click', () => {
       const { from, to } = state.pendingPromotion;
-      state.pendingPromotion = null;
-      closePromotionDialog();
+      closeDialog(dom.promotionDialog);
       attemptMove(from, to, type);
     });
     dom.promoChoices.appendChild(btn);
   }
-  dom.promotionDialog.hidden = false;
-  const first = dom.promoChoices.querySelector('button');
-  if (first) first.focus();
+  openDialog(dom.promotionDialog);
 }
 
 function closePromotionDialog() {
-  dom.promotionDialog.hidden = true;
-  state.pendingPromotion = null;
-  dom.board.focus();
+  closeDialog(dom.promotionDialog);
 }
 
 /* ========================================================================== */
@@ -980,8 +1115,7 @@ function finishGame() {
 
   dom.resultTitle.textContent = title;
   dom.resultText.textContent = text;
-  dom.resultDialog.hidden = false;
-  setTimeout(() => $('#result-again')?.focus(), 30);
+  openDialog(dom.resultDialog, $('#result-again'));
 }
 
 /* ========================================================================== */
@@ -1008,8 +1142,8 @@ function newGame() {
   state.flipped = false;
 
   dom.coachFeed.innerHTML = '';
-  dom.resultDialog.hidden = true;
-  dom.promotionDialog.hidden = true;
+  closeDialog(dom.resultDialog);
+  closeDialog(dom.promotionDialog);
   dom.moveList.innerHTML = '';
   dom.moveCount.textContent = '0';
   showBanner('');
@@ -1042,7 +1176,7 @@ function undo() {
   state.lastMove = null;
   state.hint = null;
   clearSelection();
-  dom.resultDialog.hidden = true;
+  closeDialog(dom.resultDialog);
   showBanner('');
 
   const last = state.history[state.history.length - 1];
@@ -1074,7 +1208,7 @@ function resign() {
   addBubble({ tier: 'info', title: 'Resignation', text });
   dom.resultTitle.textContent = title;
   dom.resultText.textContent = text;
-  dom.resultDialog.hidden = false;
+  openDialog(dom.resultDialog, $('#result-again'));
 }
 
 async function hint() {
@@ -1330,11 +1464,16 @@ async function boot() {
   dom.btnFlip.addEventListener('click', flip);
   dom.btnResign.addEventListener('click', resign);
   $('#promo-cancel').addEventListener('click', closePromotionDialog);
-  $('#result-again').addEventListener('click', () => { dom.resultDialog.hidden = true; newGame(); });
-  $('#result-close').addEventListener('click', () => { dom.resultDialog.hidden = true; });
+  $('#result-again').addEventListener('click', () => { closeDialog(dom.resultDialog); newGame(); });
+  $('#result-close').addEventListener('click', () => closeDialog(dom.resultDialog));
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !dom.promotionDialog.hidden) closePromotionDialog();
+  // Escape closes a dialog; Tab is kept inside it (see onDialogKeydown).
+  document.addEventListener('keydown', onDialogKeydown);
+
+  // Scrolling to a fragment does not reliably move focus to the target, so the
+  // skip link takes focus explicitly once the navigation has happened.
+  $('.skip-link')?.addEventListener('click', () => {
+    setTimeout(() => dom.board.focus(), 0);
   });
 
   bindSettings();

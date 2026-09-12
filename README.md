@@ -22,7 +22,7 @@ child can understand.
 | **Hints** | Highlights a recommended from/to square on the board |
 | **Modes** | Vs Computer (3 tiers) and 2-player pass & play with auto-flip |
 | **E-ink / iPad** | Monochrome palette, animations off by default, 48px+ squares |
-| **Accessibility** | Full keyboard play, ARIA labels, live regions, focus rings |
+| **Accessibility** | Keyboard play, a real `grid`/`row`/`gridcell` board, trapped modal focus, a readable evaluation, and a working skip link |
 
 ---
 
@@ -233,11 +233,12 @@ Neither script is uploaded by `wrangler deploy` — they live outside `assets/`.
 ## Testing
 
 ```bash
-npm test              # all five suites, starts its own server
+npm test              # all six suites, starts its own server
 npm run test:worker   # Worker unit tests (no browser, no network)
 npm run test:engine   # engine-layer unit tests (fake UCI worker, no browser)
 npm run test:coach    # coach tier + wording unit tests (no browser)
 npm run test:smoke    # 38 browser checks: rendering, pieces, engine, coach, layout
+npm run test:a11y     # accessibility tree, modal focus, skip link, forced colours
 npm run test:e2e      # scenario checks: checkmate, promotion, offline, concurrency…
 ```
 
@@ -271,6 +272,13 @@ ceilings must increase from best to worst, grading must never improve as the
 loss grows, `brilliant` is reserved for an engine-best move with a special
 quality, and the hint wording must differ by tier rather than always falling
 back to the same sentence.
+
+The accessibility suite (`npm run test:a11y`) drives a real browser: it reads
+Chrome's accessibility tree (the board must be a grid owning 8 rows of 8 named
+gridcells, and the evaluation must be exposed rather than hidden), exercises the
+modals (Tab is trapped, Escape closes, the background is `inert`, focus returns
+to the board), checks the skip link actually moves focus, and confirms the board
+stays readable under `forced-colors`.
 
 Capture reference screenshots with `npm run shots` (writes to `shots/`).
 

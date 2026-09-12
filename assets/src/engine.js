@@ -468,7 +468,9 @@ class UciProcess {
       const cm = line.match(/score\s+(cp|mate)\s+(-?\d+)/);
       if (cm && this.pending.onInfo) {
         const p = this.pending;
-        p.onInfo(cm[1], parseInt(cm[2], 10));
+        // The raw line goes along for callers that need more than the score
+        // (rankedMoves() reads the `multipv`/`pv` fields from it).
+        p.onInfo(cm[1], parseInt(cm[2], 10), line);
       }
       return;
     }
@@ -752,7 +754,14 @@ export class Engine {
     return evaluateBoard(chess);
   }
 
-  /** Convenience: get a ranked list of candidate moves (for hints). */
+  /**
+   * A ranked list of candidate moves, best first (used for hints).
+   *
+   * `MultiPV` is only sent when more than one move is asked for, and the ranked
+   * list is read back from the `multipv`/`pv` fields of the info lines. Setting
+   * the option and then ignoring every MultiPV line would make it pointless —
+   * it costs search time and `count` would silently have no effect.
+   */
   async rankedMoves(chess, { depth = 3, count = 1 } = {}) {
     const fen = chess.fen();
     const position = this.Chess ? new this.Chess(fen) : chess;
@@ -760,17 +769,38 @@ export class Engine {
     if (legal.length === 0) return [];
 
     if (this.isNative && this.proc && this.proc.ready) {
-      const first = await this.proc.enqueue(async () => {
+      const multiPv = Math.max(1, Math.min(count, 5));
+      const ranked = new Map();     // multipv index → best pv move for that line
+
+      const best = await this.proc.enqueue(async () => {
         this.proc.send(`position fen ${fen}`);
-        this.proc.send(`setoption name MultiPV value ${Math.min(count, 5)}`);
-        const uci = await this.proc.go(`go depth ${depth}`, {
-          timeoutMs: depth * 400 + 2500,
-          onInfo: () => {}
-        });
-        this.proc.send('setoption name MultiPV value 1');
-        return uci;
+        if (multiPv > 1) this.proc.send(`setoption name MultiPV value ${multiPv}`);
+        try {
+          return await this.proc.go(`go depth ${depth}`, {
+            timeoutMs: depth * 400 + 2500,
+            onInfo: (kind, val, line) => {
+              const index = /\bmultipv\s+(\d+)/.exec(line || '');
+              const pv = /\bpv\s+([a-h][1-8][a-h][1-8][qrbn]?)/.exec(line || '');
+              // Later lines for the same index are deeper, so they overwrite.
+              if (index && pv) ranked.set(Number(index[1]), pv[1]);
+            }
+          });
+        } finally {
+          if (multiPv > 1) this.proc.send('setoption name MultiPV value 1');
+        }
       });
-      const parsed = parseUci(first);
+
+      if (multiPv > 1 && ranked.size) {
+        const ordered = [...ranked.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, uci]) => parseUci(uci))
+          .filter((move) => move && legalCheck(position, move));
+        if (ordered.length) return ordered.slice(0, count);
+      }
+
+      // Single-PV engines (and any engine that reported no pv lines) still
+      // give us the best move, just without alternatives.
+      const parsed = parseUci(best);
       if (parsed && legalCheck(position, parsed)) return [parsed];
     }
 

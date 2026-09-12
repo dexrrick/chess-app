@@ -41,6 +41,9 @@ class FakeWorker {
     this.failHandshake = false;
     this.neverAnswer = false;
     this.terminated = false;
+    this.multiPv = 1;                    // last MultiPV value the caller set
+    this.multiPvAnswers = ANSWERS;       // ranked pv lines when MultiPV > 1
+    this.suppressPv = false;             // pretend the engine reports no pv
     FakeWorker.last = this;
   }
 
@@ -62,8 +65,11 @@ class FakeWorker {
       this.#beginSearch(cmd);
     } else if (cmd === 'stop') {
       this.#finishSearch();
+    } else {
+      // Remember MultiPV so searches can report ranked lines like a real engine.
+      const mp = /^setoption name MultiPV value (\d+)/.exec(cmd);
+      if (mp) this.multiPv = Number(mp[1]);
     }
-    // setoption / ucinewgame / position / quit: nothing to emulate
   }
 
   terminate() { this.terminated = true; }
@@ -94,11 +100,23 @@ class FakeWorker {
     const entry = wanted || this.searches.find((s) => s.endedAt === null);
     if (!entry || entry.endedAt !== null) return;
     const index = this.searches.indexOf(entry);
-    entry.score = 100 + index;
-    entry.answer = ANSWERS[index % ANSWERS.length];
     entry.endedAt = Date.now();
     clearTimeout(entry.timer);
-    this.emit(`info depth 1 score cp ${entry.score}`);
+
+    if (this.multiPv > 1 && !this.suppressPv) {
+      // Ranked lines, best first, with `bestmove` agreeing with multipv 1.
+      const pvs = this.multiPvAnswers.slice(0, this.multiPv);
+      pvs.forEach((uci, i) => {
+        this.emit(`info depth 1 score cp ${100 + i} multipv ${i + 1} pv ${uci}`);
+      });
+      entry.score = 100;
+      entry.answer = pvs[0] || ANSWERS[0];
+      entry.pv = pvs;
+    } else {
+      entry.score = 100 + index;
+      entry.answer = ANSWERS[index % ANSWERS.length];
+      this.emit(`info depth 1 score cp ${entry.score}`);
+    }
     this.emit(`bestmove ${entry.answer}`);
     this.live--;
   }
@@ -283,6 +301,43 @@ function isLegal(chess, move) {
   check('challenger still searches deepest',
     DIFFICULTIES.challenger.depth > DIFFICULTIES.casual.depth
     && DIFFICULTIES.casual.depth > DIFFICULTIES.beginner.depth);
+}
+
+/* ---- 9. rankedMoves: MultiPV is set AND read back ---- */
+{
+  const chess = new Chess();
+  const engine = await makeEngine(chess);
+  const w = engine.testWorker;
+  w.replyDelay = 10;
+  const multiPvCommands = () => w.commands.filter((c) => /^setoption name MultiPV/.test(c));
+
+  const single = await engine.rankedMoves(chess, { depth: 2, count: 1 });
+  check('count 1 returns exactly one move', single.length === 1, JSON.stringify(single));
+  check('count 1 never sends the MultiPV option', multiPvCommands().length === 0,
+    multiPvCommands().join(' | ') || 'none');
+
+  w.commands.length = 0;
+  const ranked = await engine.rankedMoves(chess, { depth: 2, count: 3 });
+  check('count 3 returns three moves', ranked.length === 3, JSON.stringify(ranked));
+  check('the moves come back in engine rank order',
+    ranked.map((m) => `${m.from}${m.to}`).join(',') === ANSWERS.slice(0, 3).join(','),
+    ranked.map((m) => `${m.from}${m.to}`).join(','));
+  check('MultiPV is set for the search and restored afterwards',
+    multiPvCommands().join(' | ')
+      === 'setoption name MultiPV value 3 | setoption name MultiPV value 1',
+    multiPvCommands().join(' | ') || 'none');
+  check('every ranked move is legal', ranked.every((m) => isLegal(chess, m)));
+
+  // Engines that report no `pv` fields must still yield the best move.
+  w.suppressPv = true;
+  w.commands.length = 0;
+  const noPv = await engine.rankedMoves(chess, { depth: 2, count: 3 });
+  check('falls back to the single best move when no pv lines arrive',
+    noPv.length === 1 && isLegal(chess, noPv[0]), JSON.stringify(noPv));
+  check('MultiPV is still restored after that search',
+    multiPvCommands().slice(-1)[0] === 'setoption name MultiPV value 1',
+    multiPvCommands().join(' | ') || 'none');
+  engine.destroy();
 }
 
 console.log('\n========================================');

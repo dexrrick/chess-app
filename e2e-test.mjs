@@ -341,9 +341,14 @@ console.log('\n--- 5. Keyboard play ---');
   const played = await pg.evaluate(() => window.__chessClub.state.chess.history());
   check('keyboard move e2-e4 played', played[0] === 'e4', played.join(' '));
 
-  // H for hint
+  // H for hint. Wait for the hint to actually arrive rather than guessing a
+  // delay: it runs behind the coach's evaluations on the single engine, so its
+  // latency depends on how long those take on this machine.
   await pg.keyboard.press('h');
-  await new Promise((r) => setTimeout(r, 2500));
+  await pg.waitForFunction(
+    () => window.__chessClub.state.hint !== null,
+    { timeout: 25000 }
+  ).catch(() => {});
   const hintState = await pg.evaluate(() => window.__chessClub.state.hint);
   check('H key requests a hint', hintState !== null, JSON.stringify(hintState));
   await pg.close();

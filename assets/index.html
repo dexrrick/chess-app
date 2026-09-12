@@ -15,7 +15,7 @@
 </head>
 <body>
 
-<a class="skip-link" href="#board-region">Skip to the chess board</a>
+<a class="skip-link" href="#board">Skip to the chess board</a>
 
 <header class="app-header" role="banner">
   <h1 class="app-title"><span class="logo-crown" aria-hidden="true">&#9819;</span> Chess Club</h1>
@@ -48,7 +48,8 @@
     <div class="board-wrap">
       <div class="board-frame">
         <div id="board" class="board" role="grid" aria-label="Chess board" tabindex="0"
-             aria-describedby="board-instructions"></div>
+             aria-describedby="board-instructions"
+             aria-rowcount="8" aria-colcount="8"></div>
         <!-- Thinking / busy overlay -->
         <div id="board-busy" class="board-busy" hidden aria-hidden="true">
           <span class="spinner" aria-hidden="true"></span>
@@ -90,8 +91,11 @@
       </div>
 
       <div class="coach-footer">
-        <div class="eval-meter" aria-hidden="true">
-          <div class="eval-track"><div class="eval-fill" id="eval-fill"></div></div>
+        <!-- The bar is decorative, but the label carries the evaluation: it used
+             to sit inside an aria-hidden wrapper, so screen-reader users got no
+             assessment at all. -->
+        <div class="eval-meter" role="group" aria-label="Position evaluation">
+          <div class="eval-track" aria-hidden="true"><div class="eval-fill" id="eval-fill"></div></div>
           <span class="eval-label" id="eval-label">Even game</span>
         </div>
       </div>
