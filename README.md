@@ -49,8 +49,8 @@ Then open <http://localhost:8899>.
 
 ## Deploy to Cloudflare Workers
 
-The project ships with `wrangler.toml` already configured. You need Node 18+
-and a (free) Cloudflare account.
+The project ships with `wrangler.toml` already configured. You need Node 22+
+(wrangler 4's requirement) and a (free) Cloudflare account.
 
 ```bash
 # One-time: authenticate with Cloudflare
@@ -84,10 +84,16 @@ run_worker_first   = false     # assets are served directly; Worker is a fallbac
 * **`assets/`** holds the entire front end (`index.html`, `style.css`, `app.js`,
   `src/`, `vendor/`). Because the files sit at the root of that directory, the
   site is served from the domain root.
+* **`assets/_headers`** carries the security headers. It has to live here rather
+  than in the Worker: with `run_worker_first = false`, Cloudflare serves a
+  matching static file *without invoking the Worker*, so anything the Worker set
+  on a response never reached the real pages. Cloudflare parses this file and
+  does not serve it.
 * **`src/index.js`** is a small Worker that only handles requests Cloudflare's
   asset layer can't: it returns `index.html` for extension-less deep links, and
-  attaches security headers (including a CSP that permits WebAssembly and
-  worker scripts, which the engine needs).
+  re-attaches the same security headers for that generated response (`_headers`
+  is documented not to apply to Worker-generated responses). `worker-test.mjs`
+  asserts the two definitions stay identical.
 
 ---
 
@@ -96,6 +102,7 @@ run_worker_first   = false     # assets are served directly; Worker is a fallbac
 ```
 chess-app/
 ├─ assets/                    # ← everything Cloudflare uploads
+│  ├─ _headers                # security headers for the static files (parsed, not served)
 │  ├─ index.html              # semantic markup, app shell
 │  ├─ favicon.svg             # king sprite (mirrors src/pieces.js)
 │  ├─ style.css               # monochrome e-ink / iPad styling
@@ -115,6 +122,8 @@ chess-app/
 │  └─ serve.mjs               # zero-dependency static dev server
 ├─ preview/                   # dev-only piece preview + verification (not deployed)
 ├─ wrangler.toml              # Cloudflare Workers config
+├─ LICENSE                    # GPL-3.0
+├─ .editorconfig              # shared editor settings
 ├─ smoke-test.mjs             # browser smoke tests
 ├─ e2e-test.mjs               # end-to-end game scenarios
 ├─ worker-test.mjs            # Worker unit tests (no network needed)
@@ -224,10 +233,11 @@ Neither script is uploaded by `wrangler deploy` — they live outside `assets/`.
 ## Testing
 
 ```bash
-npm test              # all three suites, starts its own server
+npm test              # all four suites, starts its own server
 npm run test:worker   # Worker unit tests (no browser, no network)
+npm run test:engine   # engine-layer unit tests (fake UCI worker, no browser)
 npm run test:smoke    # 37 browser checks: rendering, pieces, engine, coach, layout
-npm run test:e2e      # 29 scenario checks: checkmate, promotion, offline…
+npm run test:e2e      # scenario checks: checkmate, promotion, offline, concurrency…
 ```
 
 The suite covers, among other things:
@@ -242,6 +252,17 @@ The suite covers, among other things:
 * keyboard-only play (arrows + Enter, `H` for a hint)
 * squares are ≥ 48 px at iPad portrait, iPad landscape and iPhone portrait
 * the Worker returns 404 for a missing asset but the shell for a deep link
+* `assets/_headers` and the Worker agree on the security headers
+* New Game while the engine is thinking does **not** end the new game
+  (the stale-reply guard)
+* the coach's review and the reply are analysed concurrently, the reply is
+  still applied after the coach's feedback lands, and neither stalls the other
+
+The engine-layer suite (`npm run test:engine`) runs in Node against a fake UCI
+worker, so the queueing that makes concurrent requests safe is tested
+deterministically: overlapping requests never run two searches at once, a late
+`bestmove` from an abandoned search is not delivered to the next one, and a
+timed-out or failed search degrades instead of hanging.
 
 Capture reference screenshots with `npm run shots` (writes to `shots/`).
 
@@ -271,8 +292,9 @@ Preferences (mode, difficulty, animation toggle, sound, auto-flip) are saved to
 **"Playing with the built-in Pocket Bot."**
 Stockfish couldn't load. The app still works. Check that `assets/vendor/`
 contains all four files and that your server sends `application/wasm` for
-`.wasm`. A strict Content-Security-Policy can also block WASM — the Worker in
-`src/index.js` sets a CSP that permits it.
+`.wasm`. A strict Content-Security-Policy can also block WASM — the policy in
+`assets/_headers` (and in `src/index.js` for Worker-generated responses) allows
+`'wasm-unsafe-eval'` and blob workers, which the engine needs.
 
 **The board looks cramped on a phone.**
 Squares are locked to a 48 px minimum, so below ~400 px wide the board scrolls
@@ -281,9 +303,23 @@ sideways inside its own container instead of shrinking.
 **`wrangler deploy --dry-run` warns about environments.**
 Harmless; it only appeared when an extra `[env.*]` block was uncommented.
 
+**`npm run dev` complains that workerd failed to install.**
+Recent npm versions refuse to run lifecycle scripts unless you allow them, which
+skips workerd's postinstall. Approve it once:
+
+```bash
+npm approve-scripts workerd   # then re-run npm install
+```
+
+`npm run deploy` is unaffected — only the local runtime needs workerd.
+
 ---
 
 ## Licences and credits
+
+This project is released under the **GNU General Public License v3.0** — see
+[`LICENSE`](LICENSE). That is not an arbitrary choice: it bundles Stockfish,
+which is GPL-3.0, so the combined work has to be GPL-compatible.
 
 * [`chess.js`](https://github.com/jhlywa/chess.js) — BSD-2-Clause
 * [`stockfish.js`](https://github.com/nmrugg/stockfish.js) — GPL-3.0

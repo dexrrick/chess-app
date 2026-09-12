@@ -69,7 +69,12 @@ function check(name, ok, detail = '') {
   console.log(`[${ok ? 'PASS' : 'FAIL'}] ${name}${detail ? '  -> ' + detail : ''}`);
 }
 
-const url = `http://127.0.0.1:${PORT}/assets/index.html`;
+// Default: the checked-in static server. Set VERIFY_URL to point at something
+// else — e.g. `wrangler dev` — to check the app under the REAL edge headers
+// (CSP included), which the plain static server does not send.
+const url = process.env.VERIFY_URL
+  || `http://127.0.0.1:${PORT}/assets/index.html`;
+console.log(`  Verifying ${url}`);
 const browser = await puppeteer.launch({
   headless: 'new',
   args: ['--no-sandbox', '--disable-dev-shm-usage'],

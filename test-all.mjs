@@ -58,6 +58,7 @@ try {
 
   const suites = [
     ['Worker unit tests', 'worker-test.mjs'],
+    ['Engine unit tests', 'engine-test.mjs'],
     ['Browser smoke tests', 'smoke-test.mjs'],
     ['End-to-end scenarios', 'e2e-test.mjs']
   ];

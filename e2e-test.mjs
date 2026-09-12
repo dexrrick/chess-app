@@ -410,6 +410,231 @@ console.log('\n--- 7. Check banner ---');
   await pg.close();
 }
 
+/* ==========================================================================
+   8. New Game while the engine is thinking (stale-reply guard)
+   ========================================================================== */
+console.log('\n--- 8. New Game during the engine search ---');
+{
+  const pg = await newPage();
+  await waitEngine(pg);
+
+  // Challenger searches the longest (depth 12 / 1600 ms), and turning the coach
+  // off skips the evaluation phase so we reach the search immediately.
+  await pg.evaluate(() => {
+    const diff = document.querySelector('input[name="difficulty"][value="challenger"]');
+    diff.checked = true;
+    diff.dispatchEvent(new Event('change', { bubbles: true }));
+    const coach = document.querySelector('#opt-coach');
+    coach.checked = false;
+    coach.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 400));
+
+  await playMoves(pg, [['e2', 'e4']]);
+
+  // Wait until the engine is genuinely mid-search, otherwise the test would
+  // pass vacuously.
+  const started = await pg.waitForFunction(
+    () => window.__chessClub.state.busy === true,
+    { timeout: 20000 }
+  ).catch(() => null);
+
+  // Interrupt with a brand-new game, then give any in-flight reply time to land.
+  await pg.click('#btn-new');
+  await new Promise((r) => setTimeout(r, 3000));
+
+  const after = await pg.evaluate(() => ({
+    gameOver: window.__chessClub.state.gameOver,
+    fen: window.__chessClub.state.chess.fen(),
+    historyLen: window.__chessClub.state.history.length,
+    resultShown: !document.querySelector('#result-dialog').hidden,
+    pieces: document.querySelectorAll('.square .piece').length
+  }));
+
+  check('the engine really was thinking', !!started);
+  check('a stale reply does not end the new game', !after.gameOver);
+  check('the new game is still in the starting position',
+    after.fen.startsWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w'),
+    after.fen.split(' ')[0]);
+  check('no moves were replayed onto the new game', after.historyLen === 0,
+    `history=${after.historyLen}`);
+  check('32 pieces still on the board', after.pieces === 32, `count=${after.pieces}`);
+  check('no result dialog appeared', !after.resultShown);
+
+  await pg.close();
+}
+
+/* ==========================================================================
+   9. Coach review and the reply run concurrently (P1-6)
+   ========================================================================== */
+console.log('\n--- 9. Concurrent coach review and computer reply ---');
+{
+  const pg = await newPage();
+  await waitEngine(pg);
+
+  // Instrument the page: record the order of engine calls, and of the two
+  // user-visible events (the coach bubble and the reply landing). The engine
+  // methods can be replaced so the two analyses finish in a chosen order.
+  await pg.evaluate(() => {
+    const s = window.__chessClub.state;
+    const log = [];
+    const marks = [];
+    let t0 = 0;
+    window.__p16 = {
+      log,
+      marks,
+      reset() { log.length = 0; marks.length = 0; t0 = performance.now(); },
+      mark(name) { marks.push({ name, t: Math.round(performance.now() - t0) }); },
+      patch(opts) {
+        s.engine.evaluate = async () => {
+          log.push('evaluate:start');
+          await new Promise((r) => setTimeout(r, opts.evaluateMs ?? 20));
+          log.push('evaluate:end');
+          if (opts.failEvaluate) throw new Error('evaluate failed');
+          return 30;
+        };
+        s.engine.bestMove = async () => {
+          log.push('bestMove:start');
+          await new Promise((r) => setTimeout(r, opts.bestMoveMs ?? 20));
+          log.push('bestMove:end');
+          if (opts.failBestMove) throw new Error('bestMove failed');
+          return { from: 'e7', to: 'e5' };
+        };
+      },
+      restore() { delete s.engine.evaluate; delete s.engine.bestMove; }
+    };
+    let bubbles = document.querySelectorAll('#coach-feed .bubble').length;
+    let moves = s.history.length;
+    const tick = () => {
+      const b = document.querySelectorAll('#coach-feed .bubble').length;
+      const m = s.history.length;
+      if (b !== bubbles) { bubbles = b; window.__p16.mark('bubble'); }
+      if (m !== moves) {
+        moves = m;
+        // history 1 is the human's own move; only the computer's reply (2)
+        // matters for the ordering assertions below.
+        if (m >= 2) window.__p16.mark('move');
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+  const snap = () => pg.evaluate(() => ({
+    log: [...window.__p16.log],
+    marks: [...window.__p16.marks],
+    history: window.__chessClub.state.history.length,
+    gameOver: window.__chessClub.state.gameOver,
+    fen: window.__chessClub.state.chess.fen(),
+    pieces: document.querySelectorAll('.square .piece').length,
+    resultShown: !document.querySelector('#result-dialog').hidden
+  }));
+  const at = (marks, name) => marks.findIndex((m) => m.name === name);
+  const before = (marks, a, b) => at(marks, a) !== -1 && at(marks, a) < at(marks, b);
+  const playE4 = async () => {
+    await pg.click('.square[data-square="e2"]');
+    await new Promise((r) => setTimeout(r, 120));
+    await pg.click('.square[data-square="e4"]');
+  };
+  const freshGame = async () => {
+    await pg.click('#btn-new');
+    await new Promise((r) => setTimeout(r, 250));
+  };
+  let st;
+
+  /* -- 9a. the normal path, with the real engine -- */
+  await pg.evaluate(() => window.__p16.reset());
+  await playE4();
+  await new Promise((r) => setTimeout(r, 3500));
+  st = await snap();
+  check('9a normal: the coach gives feedback', at(st.marks, 'bubble') !== -1,
+    JSON.stringify(st.marks));
+  check('9a normal: the computer replies', st.history === 2, `history=${st.history}`);
+  check('9a normal: feedback lands before the reply', before(st.marks, 'bubble', 'move'),
+    JSON.stringify(st.marks));
+
+  /* -- 9b. the coach is slower than the reply -- */
+  await freshGame();
+  await pg.evaluate(() => {
+    window.__p16.reset();
+    window.__p16.patch({ evaluateMs: 400, bestMoveMs: 20 });
+  });
+  await playE4();
+  await new Promise((r) => setTimeout(r, 1500));
+  st = await snap();
+  check('9b coach slower: both analyses are in flight at once',
+    st.log.indexOf('bestMove:start') !== -1
+    && st.log.indexOf('bestMove:start') < st.log.indexOf('evaluate:end'),
+    st.log.join(' '));
+  check('9b coach slower: the bubble precedes the reply', before(st.marks, 'bubble', 'move'),
+    JSON.stringify(st.marks));
+  check('9b coach slower: the reply still lands', st.history === 2, `history=${st.history}`);
+
+  /* -- 9c. the reply is faster than the coach -- */
+  await freshGame();
+  await pg.evaluate(() => {
+    window.__p16.reset();
+    window.__p16.patch({ evaluateMs: 500, bestMoveMs: 10 });
+  });
+  await playE4();
+  await new Promise((r) => setTimeout(r, 1700));
+  st = await snap();
+  check('9c reply faster: the reply finished analysing first',
+    st.log.indexOf('bestMove:end') < st.log.indexOf('evaluate:end'), st.log.join(' '));
+  check('9c reply faster: the bubble STILL precedes the board change',
+    before(st.marks, 'bubble', 'move'), JSON.stringify(st.marks));
+  check('9c reply faster: the reply lands', st.history === 2, `history=${st.history}`);
+
+  /* -- 9d. a new game while both analyses are running -- */
+  await pg.evaluate(() => {
+    window.__p16.reset();
+    window.__p16.patch({ evaluateMs: 1200, bestMoveMs: 900 });
+  });
+  await playE4();
+  await new Promise((r) => setTimeout(r, 200));
+  await pg.click('#btn-new');
+  await new Promise((r) => setTimeout(r, 2500));
+  st = await snap();
+  check('9d new game mid-analysis: the new game is still live', !st.gameOver);
+  check('9d new game mid-analysis: still the starting position',
+    st.fen.startsWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w'),
+    st.fen.split(' ')[0]);
+  check('9d new game mid-analysis: no move was replayed', st.history === 0,
+    `history=${st.history}`);
+  check('9d new game mid-analysis: 32 pieces', st.pieces === 32, `pieces=${st.pieces}`);
+  check('9d new game mid-analysis: no result dialog', !st.resultShown);
+
+  /* -- 9e. the coach's evaluation fails -- */
+  await freshGame();
+  await pg.evaluate(() => {
+    window.__p16.reset();
+    window.__p16.patch({ evaluateMs: 20, bestMoveMs: 20, failEvaluate: true });
+  });
+  await playE4();
+  await new Promise((r) => setTimeout(r, 1200));
+  st = await snap();
+  check('9e coach fails: the game carries on (reply applied)', st.history === 2,
+    `history=${st.history}`);
+  check('9e coach fails: the game is not over', !st.gameOver);
+  check('9e coach fails: no result dialog', !st.resultShown);
+
+  /* -- 9f. the reply search fails -- */
+  await freshGame();
+  await pg.evaluate(() => {
+    window.__p16.reset();
+    window.__p16.patch({ evaluateMs: 20, bestMoveMs: 20, failBestMove: true });
+  });
+  await playE4();
+  await new Promise((r) => setTimeout(r, 1200));
+  st = await snap();
+  check('9f reply fails: a legal move is still played', st.history === 2,
+    `history=${st.history}`);
+  check('9f reply fails: the game is not over', !st.gameOver);
+
+  await pg.evaluate(() => window.__p16.restore());
+  await pg.close();
+}
+
 console.log('\n========================================');
 console.log(failures === 0 ? '  ALL SCENARIO TESTS PASSED' : `  ${failures} CHECK(S) FAILED`);
 console.log('========================================\n');

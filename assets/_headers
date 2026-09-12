@@ -1,0 +1,28 @@
+# Custom headers for the static assets, parsed by Cloudflare's asset layer.
+#
+# Why this file has to exist
+# --------------------------
+# `wrangler.toml` sets `run_worker_first = false`, which means Cloudflare serves
+# a matching static file WITHOUT invoking the Worker at all. Anything
+# `src/index.js` sets on a response therefore never reached the real pages —
+# index.html, app.js and style.css shipped with no CSP whatsoever. A `_headers`
+# file *is* applied by the asset layer, so this is where the headers belong.
+#
+# This file itself is not served as an asset.
+#
+# Responses the Worker generates for itself (the SPA fallback for deep links)
+# still get their headers from src/index.js, because `_headers` is documented
+# not to apply to Worker-generated responses. So there are two definitions on
+# purpose; worker-test.mjs compares them and fails if they drift.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob: https://cdn.jsdelivr.net https://unpkg.com; child-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+
+# Cache-Control is deliberately left to Cloudflare's default for assets
+# (`public, max-age=0, must-revalidate`) plus the ETag it computes from the file
+# hash. That means a browser always revalidates, so an edited asset is picked up
+# immediately instead of sitting stale in a cache for an hour.

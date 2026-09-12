@@ -80,12 +80,27 @@ const state = {
 
   busy: false,               // engine thinking / animating
   gameOver: false,
+  generation: 0,             // bumped by newGame(); async work compares against it
   history: [],               // { san, fenBefore, fenAfter, color, move }
   evalCp: 0,                 // centipawns, white's perspective
+  evalFen: null,             // the position evalCp describes (null = unknown)
   started: false,
   pendingPromotion: null,
   hintCount: 0
 };
+
+/**
+ * Every asynchronous continuation that can outlive its game calls this.
+ *
+ * `newGame()` bumps `state.generation`, so a reply from an engine search (or a
+ * coach evaluation) that started before the reset is discarded instead of being
+ * applied to the brand-new position. Without it, a stale computer move was
+ * replayed onto the fresh board, failed as illegal, and immediately ended the
+ * new game (see computerMove()).
+ */
+function isStale(generation) {
+  return generation !== state.generation;
+}
 
 /* LocalStorage key for remembered preferences */
 const PREFS_KEY = 'chessclub.prefs.v1';
@@ -545,7 +560,6 @@ async function attemptMove(from, to, promotion) {
   }
 
   const fenBefore = state.chess.fen();
-  const evalBefore = state.evalCp;
 
   let move;
   try {
@@ -577,15 +591,25 @@ async function attemptMove(from, to, promotion) {
     return;
   }
 
+  const generation = state.generation;
+
   // Hand over to the computer if it is its turn.
   if (state.mode === 'computer' && state.chess.turn() !== state.playerColor) {
-    // Coach evaluation runs first so the bubble lands before the reply.
-    if (state.coachOn) {
-      await coachReviewPlayedMove(move, fenBefore, evalBefore);
-    }
-    await computerMove();
+    // Start both analyses now instead of one strictly after the other. They
+    // share a single engine, which queues them (see UciProcess.enqueue), and
+    // the coach's evaluation is requested first, so its bubble is still
+    // rendered before the reply is applied. The reply's e-ink paint yield now
+    // overlaps the coach's search instead of sitting in front of it.
+    const review = state.coachOn ? coachReviewPlayedMove(move, fenBefore) : null;
+    const reply = computeComputerMove();
+
+    if (review) await review;
+    if (isStale(generation)) return;
+    applyComputerMove(await reply);
+    if (isStale(generation)) return;
   } else if (state.coachOn) {
-    await coachReviewPlayedMove(move, fenBefore, evalBefore);
+    await coachReviewPlayedMove(move, fenBefore);
+    if (isStale(generation)) return;
   } else {
     scheduleEvalRefresh();
   }
@@ -602,11 +626,34 @@ async function attemptMove(from, to, promotion) {
   }
 }
 
+/**
+ * The evaluation of `fen` in centipawns from White's point of view.
+ *
+ * The position *before* a move is exactly the position the previous step already
+ * evaluated (the previous move's "after"), so from the second move on the coach
+ * needs no engine search for it — which halves the coach's engine cost. The
+ * cache is keyed by FEN, so a miss simply re-evaluates; a stale entry can never
+ * produce a wrong number.
+ */
+async function evaluateForFen(fen) {
+  if (state.evalFen === fen) return state.evalCp;
+  return state.engine.evaluate(new state.Chess(fen), { depth: 8, timeoutMs: 2000 });
+}
+
+/** Record that `state.evalCp` now describes `fen`. */
+function cacheEval(fen, cp) {
+  state.evalFen = fen;
+  state.evalCp = cp;
+}
+
 function scheduleEvalRefresh() {
   if (!state.engine) return;
+  const generation = state.generation;
+  const fen = state.chess.fen();
   state.engine.evaluate(state.chess, { depth: 8, timeoutMs: 1800 })
     .then((cp) => {
-      state.evalCp = cp;
+      if (isStale(generation)) return;
+      cacheEval(fen, cp);
       renderEval();
     })
     .catch(() => { /* ignore */ });
@@ -648,10 +695,19 @@ function closePromotionDialog() {
 /* ========================================================================== */
 
 async function bestMoveLoss(chess, playedMove, fenBefore) {
-  // Evaluate the position before, and after, using a shallow search.
-  const chessBefore = new state.Chess(fenBefore);
-  const before = await state.engine.evaluate(chessBefore, { depth: 8, timeoutMs: 2000 });
-  const after = await state.engine.evaluate(chess, { depth: 8, timeoutMs: 2000 });
+  // Request BOTH evaluations up front. On a cache hit the "before" value costs
+  // no engine call at all; on a miss the two are queued back-to-back, which
+  // keeps the coach's verdict ahead of the concurrently-requested reply search
+  // instead of letting that search jump the queue.
+  const beforePromise = evaluateForFen(fenBefore);
+  const afterPromise = state.engine.evaluate(chess, { depth: 8, timeoutMs: 2000 });
+  // Both are requested up front, so make sure neither can become an unhandled
+  // rejection if the other one fails first. Attaching a handler does not stop
+  // the `await`s below from seeing the error.
+  beforePromise.catch(() => {});
+  afterPromise.catch(() => {});
+  const before = await beforePromise;
+  const after = await afterPromise;
 
   // `evaluate` returns White-perspective centipawns.
   const moverIsWhite = playedMove.color === 'w';
@@ -660,10 +716,12 @@ async function bestMoveLoss(chess, playedMove, fenBefore) {
   return { before, after, loss };
 }
 
-async function coachReviewPlayedMove(move, fenBefore, evalBefore) {
+async function coachReviewPlayedMove(move, fenBefore) {
+  const generation = state.generation;
   try {
     const { loss, after } = await bestMoveLoss(state.chess, move, fenBefore);
-    state.evalCp = after;
+    if (isStale(generation)) return;
+    cacheEval(state.chess.fen(), after);
     renderEval();
     if (!state.coachOn) return;
 
@@ -773,30 +831,63 @@ function isKingExposed(color) {
 /*  Computer move                                                             */
 /* ========================================================================== */
 
-async function computerMove() {
-  if (state.gameOver) return;
-  if (state.mode !== 'computer') return;
-  if (state.chess.turn() === state.playerColor) return;
+/**
+ * Work out the computer's reply.
+ *
+ * This is started concurrently with the coach's review; the engine queues the
+ * two searches so neither can corrupt the other's result (see
+ * UciProcess.enqueue).
+ *
+ * @returns {Promise<{from:string,to:string,promotion?:string}|null|undefined>}
+ *   the move, `null` when there is no legal move, or `undefined` when the game
+ *   changed underneath us and the result must be discarded.
+ */
+async function computeComputerMove() {
+  if (state.gameOver) return undefined;
+  if (state.mode !== 'computer') return undefined;
+  if (state.chess.turn() === state.playerColor) return undefined;
 
-  setBusy(true, 'Computer is thinking…');
-  // Yield a frame so the overlay paints (important on slow e-ink).
-  await sleep(40);
-
-  let move = null;
+  const generation = state.generation;
   try {
-    move = await state.engine.bestMove(state.chess, { difficulty: state.difficulty });
-  } catch {
-    move = null;
-  }
+    setBusy(true, 'Computer is thinking…');
+    // Yield a frame so the overlay paints (important on slow e-ink). This now
+    // overlaps the coach's search rather than delaying the reply.
+    await sleep(40);
+    if (isStale(generation)) return undefined;   // a New Game landed while we waited
 
-  if (!move) {
-    // Absolute last resort: pick any legal move so we never deadlock.
-    const legal = state.chess.moves({ verbose: true });
-    if (legal.length) {
-      const m = legal[Math.floor(Math.random() * legal.length)];
-      move = { from: m.from, to: m.to, promotion: m.promotion };
+    let move = null;
+    try {
+      move = await state.engine.bestMove(state.chess, { difficulty: state.difficulty });
+    } catch {
+      move = null;
     }
+
+    // Discard the reply if the game changed while the engine was thinking. The
+    // move was computed for a position that no longer exists; applying it to
+    // the new one made it illegal and killed the fresh game. `newGame()` has
+    // already cleared `busy`, so there is nothing to unwind here.
+    if (isStale(generation)) return undefined;
+
+    if (!move) {
+      // Absolute last resort: pick any legal move so we never deadlock.
+      const legal = state.chess.moves({ verbose: true });
+      if (legal.length) {
+        const m = legal[Math.floor(Math.random() * legal.length)];
+        move = { from: m.from, to: m.to, promotion: m.promotion };
+      }
+    }
+
+    return move;
+  } catch {
+    // Never leave the spinner up if something unforeseen goes wrong.
+    setBusy(false);
+    return undefined;
   }
+}
+
+/** Put the computer's reply on the board, or end the game if there is none. */
+function applyComputerMove(move) {
+  if (move === undefined) return;   // superseded — nothing to apply
 
   setBusy(false);
 
@@ -829,6 +920,14 @@ async function computerMove() {
 
   // Refresh the eval for the human's benefit.
   scheduleEvalRefresh();
+}
+
+/**
+ * Compute and apply the reply in one step — used by newGame(), undo() and
+ * boot(), where there is no coach review to interleave with.
+ */
+async function computerMove() {
+  applyComputerMove(await computeComputerMove());
 }
 
 /* ========================================================================== */
@@ -889,6 +988,10 @@ function finishGame() {
 /* ========================================================================== */
 
 function newGame() {
+  // Invalidate any engine search or coach evaluation still in flight, so its
+  // reply cannot be applied to this game (see isStale()).
+  state.generation += 1;
+
   state.chess = new state.Chess();
   state.selected = null;
   state.legalTargets = [];
@@ -897,7 +1000,7 @@ function newGame() {
   state.cursor = 'e2';
   state.gameOver = false;
   state.history = [];
-  state.evalCp = 0;
+  cacheEval(null, 0);        // no known evaluation yet; recomputed on first use
   state.hintCount = 0;
   state.busy = false;
   state.playerColor = 'w';
@@ -975,9 +1078,12 @@ function resign() {
 
 async function hint() {
   if (!isHumanTurn() || state.busy || state.gameOver) return;
+  const generation = state.generation;
   setBusy(true, 'Looking for a good move…');
   try {
     const moves = await state.engine.rankedMoves(state.chess, { depth: 6, count: 1 });
+    // A New Game during the search: newGame() already cleared `busy`.
+    if (isStale(generation)) return;
     if (moves && moves.length) {
       const m = moves[0];
       state.hint = { from: m.from, to: m.to };

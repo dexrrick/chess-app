@@ -52,8 +52,12 @@ function resolveFile(urlPath) {
   // Path traversal guard.
   if (candidate !== ROOT && !candidate.startsWith(ROOT + path.sep)) return null;
 
-  if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+  // Cloudflare parses assets/_headers itself and never serves it as a file.
+  // Mirror that, and deliberately do NOT fall through to the SPA shell below:
+  // a request for a metadata file should be a 404, not an HTML page.
+  if (/_?headers$/i.test(path.basename(candidate))) return null;
 
+  if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
   // SPA-style fallback for extension-less routes.
   if (!path.extname(pathname)) {
     const index = path.join(ROOT, 'index.html');

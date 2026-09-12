@@ -27,6 +27,15 @@ markup is present *and* that the stylesheet colours it (a black piece must get
 white detail strokes), and writes `preview/out/app-board.png`. It is the quick
 way to check a piece change without waiting on the full browser suites.
 
+Point it at a different origin with `VERIFY_URL`. That is how the app gets
+checked under the *real* edge headers, since the plain static server sends no
+Content-Security-Policy:
+
+```bash
+npx wrangler dev --port 8971 &      # applies assets/_headers
+VERIFY_URL=http://127.0.0.1:8971/index.html npm run preview:verify
+```
+
 ## Files
 
 | File | Purpose |

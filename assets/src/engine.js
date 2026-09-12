@@ -260,8 +260,79 @@ class UciProcess {
     this._searchId = 0;
     this._readyWaiter = null;
     this.listeners = new Set();
-    this.queue = [];
+    this.queue = [];          // exclusive jobs waiting for the engine (see enqueue)
+    this._running = false;    // true while a queued job holds the engine
+    this._idleWaiters = [];   // resolve when the engine slot is free again
     this.initError = null;
+  }
+
+  /**
+   * Run `job` with exclusive use of the engine, queued behind anything already
+   * in flight.
+   *
+   * The app can legitimately want two analyses at once — the coach grading the
+   * move while the opponent's reply is already being calculated. A UCI engine
+   * has exactly one search, and cancelling one request to serve another would
+   * resolve the first caller with `null` (which makes the app fall back to a
+   * random move), so overlapping requests are queued instead of cancelled.
+   *
+   * @param {() => Promise<any>} job
+   * @returns {Promise<any>} whatever `job` resolves with (null if it throws)
+   */
+  enqueue(job) {
+    return new Promise((resolve) => {
+      this.queue.push({ job, resolve });
+      this.#drain();
+    });
+  }
+
+  async #drain() {
+    if (this._running) return;
+    const next = this.queue.shift();
+    if (!next) return;
+    this._running = true;
+    try {
+      // Never start a job while a search is still settling: the UCI commands a
+      // job sends (`position`, `setoption`) must not land mid-search, and a
+      // trailing `bestmove` from an abandoned search must not resolve ours.
+      await this.#whenIdle();
+      next.resolve(await next.job());
+    } catch {
+      next.resolve(null);
+    } finally {
+      this._running = false;
+      this.#drain();
+    }
+  }
+
+  /**
+   * Resolve once no search is in flight.
+   *
+   * `bestmove` lines carry no id, so the only way to be sure a line belongs to
+   * the search we just started is to not start one while the previous search
+   * could still report. Waiting for the slot to clear is therefore what keeps a
+   * cancelled search's trailing `bestmove` from resolving the next search.
+   */
+  #whenIdle() {
+    if (!this.pending) return Promise.resolve();
+    return new Promise((resolve) => { this._idleWaiters.push(resolve); });
+  }
+
+  #flushIdle() {
+    const waiters = this._idleWaiters;
+    this._idleWaiters = [];
+    for (const w of waiters) w();
+  }
+
+  /**
+   * Last resort for a wedged engine: free the slot so the queue cannot stall
+   * forever. The late `bestmove` is then ignored by #route().
+   */
+  #dropStuckPending(id) {
+    if (this.pending && this.pending.id === id) {
+      this.pending = null;
+      this.#flushIdle();
+    }
   }
 
   /** Spawn the worker and complete the UCI handshake. @returns {Promise<boolean>} */
@@ -317,6 +388,7 @@ class UciProcess {
           this.pending = null;
           clearTimeout(p.timer);
           p.resolve(null);
+          this.#flushIdle();
         }
       });
 
@@ -390,6 +462,7 @@ class UciProcess {
         this.pending = null;
         clearTimeout(p.timer);
         p.resolve(m[1]);
+        this.#flushIdle();
         return;
       }
       const cm = line.match(/score\s+(cp|mate)\s+(-?\d+)/);
@@ -430,44 +503,45 @@ class UciProcess {
     });
   }
 
-  /** Send a UCI command and wait for the next `bestmove`. */
+  /**
+   * Send a UCI command and wait for the next `bestmove`.
+   *
+   * Waits for the engine slot first. `bestmove` lines carry no id, so the only
+   * way to know a line belongs to the search we just started is to not start
+   * one while the previous search could still report. Callers are expected to
+   * come through enqueue(), which already guarantees one search at a time.
+   */
   go(cmd, { timeoutMs = 12000, onInfo = null } = {}) {
     if (!this.ready || !this.worker) {
       return Promise.resolve(null);
     }
 
-    // If a search is somehow still running, stop it and discard its result.
-    if (this.pending) {
-      const stale = this.pending;
-      this.pending = null;
-      clearTimeout(stale.timer);
-      stale.resolve(null);
-      this.send('stop');
-    }
-
-    return new Promise((resolve) => {
-      // Monotonic id: any `bestmove` that arrives for an older search is
-      // ignored, which prevents an aborted search from resolving the next one.
+    return this.#whenIdle().then(() => new Promise((resolve) => {
       const id = ++this._searchId;
       const timer = setTimeout(() => {
-        if (this.pending && this.pending.id === id) {
-          this.pending = null;
-          // Tell the engine to stop working; its bestmove is discarded above.
-          this.send('stop');
-          resolve(null);
-        }
+        if (!this.pending || this.pending.id !== id) return;
+        // Abandon the caller but KEEP the slot until the engine's own
+        // `bestmove` arrives: clearing it now would let that line resolve the
+        // *next* search with the wrong move. The promise is already settled, so
+        // the late result is ignored, and #dropStuckPending is the backstop for
+        // an engine that never answers at all.
+        clearTimeout(this.pending.timer);
+        this.pending.timer = setTimeout(() => this.#dropStuckPending(id), 3000);
+        resolve(null);
       }, timeoutMs);
       this.pending = { id, resolve, timer, lines: [], onInfo };
       this.send(cmd);
-    });
+    }));
   }
 
-  /** Cancel any in-flight search and drop its result. */
+  /** Abandon the in-flight search and drop its result. */
   stop() {
-    if (!this.pending) return;
     const p = this.pending;
-    this.pending = null;
+    if (!p) return;
     clearTimeout(p.timer);
+    // Keep the slot until the engine's own `bestmove` arrives (see go()). The
+    // caller's promise is resolved now; the late result is ignored.
+    p.timer = setTimeout(() => this.#dropStuckPending(p.id), 3000);
     this.send('stop');
     p.resolve(null);
   }
@@ -492,6 +566,7 @@ class UciProcess {
       this.pending.resolve(null);
       this.pending = null;
     }
+    this.#flushIdle();
   }
 }
 
@@ -607,18 +682,26 @@ export class Engine {
     const key = opts.difficulty || this.difficulty || 'casual';
     const preset = DIFFICULTIES[key] || DIFFICULTIES.casual;
     const fen = chess.fen();
+    // Analyse a snapshot of the position we were asked about: the caller's
+    // instance can change while this waits its turn in the engine queue (a New
+    // Game, an undo), and everything below must describe the requested position.
+    const position = this.Chess ? new this.Chess(fen) : chess;
 
     if (this.isNative && this.proc && this.proc.ready) {
-      await this.setDifficulty(key);
-      this.proc.send('ucinewgame');
-      this.proc.send(`position fen ${fen}`);
-      const limit = `go depth ${preset.depth} movetime ${preset.movetimeMs}`;
-      const uci = await this.proc.go(limit, {
-        timeoutMs: preset.movetimeMs + 9000,
-        onInfo: opts.onInfo
+      // Position setup and the search are queued as one unit so a concurrent
+      // request cannot slip a `position` command between them.
+      const uci = await this.proc.enqueue(async () => {
+        await this.setDifficulty(key);
+        this.proc.send('ucinewgame');
+        this.proc.send(`position fen ${fen}`);
+        const limit = `go depth ${preset.depth} movetime ${preset.movetimeMs}`;
+        return this.proc.go(limit, {
+          timeoutMs: preset.movetimeMs + 9000,
+          onInfo: opts.onInfo
+        });
       });
       const parsed = parseUci(uci);
-      if (parsed && legalCheck(chess, parsed)) {
+      if (parsed && legalCheck(position, parsed)) {
         return parsed;
       }
       // Engine gave an unusable answer — fall through to the pocket bot so
@@ -627,11 +710,10 @@ export class Engine {
 
     // Pocket Bot path (also the fallback when an engine answer was invalid).
     await sleep(key === 'beginner' ? 260 : 380);
-    const move = pocketBotMove(chess, {
+    return pocketBotMove(position, {
       depth: key === 'challenger' ? 3 : key === 'casual' ? 2 : 1,
       blunderChance: preset.blunderChance
     });
-    return move;
   }
 
   /**
@@ -640,61 +722,67 @@ export class Engine {
    */
   async evaluate(chess, { depth = 10, timeoutMs = 2500 } = {}) {
     const fen = chess.fen();
+    const turn = chess.turn();
     if (this.isNative && this.proc && this.proc.ready) {
-      // Cancel any in-flight move search so we can evaluate cleanly.
-      this.proc.stop();
-      this.proc.send(`position fen ${fen}`);
-      let mate = null;
-      let cp = null;
-      await this.proc.go(`go depth ${depth}`, {
-        timeoutMs,
-        onInfo: (kind, val) => {
-          if (kind === 'cp') { cp = val; mate = null; }
-          if (kind === 'mate') { mate = val; cp = null; }
+      // Queued rather than cancelled: another caller (the opponent's reply
+      // search) may be using the engine right now, and cancelling it would
+      // resolve that caller with null and make the app play a random move.
+      const score = await this.proc.enqueue(async () => {
+        this.proc.send(`position fen ${fen}`);
+        let mate = null;
+        let cp = null;
+        await this.proc.go(`go depth ${depth}`, {
+          timeoutMs,
+          onInfo: (kind, val) => {
+            if (kind === 'cp') { cp = val; mate = null; }
+            if (kind === 'mate') { mate = val; cp = null; }
+          }
+        });
+        // Reported from the side-to-move's perspective; flipped by the caller.
+        if (mate !== null) {
+          return mate > 0 ? (2000 - Math.abs(mate) * 10) : (-2000 + Math.abs(mate) * 10);
         }
+        return cp;
       });
-      if (mate !== null) {
-        // Mate scores are reported from the side-to-move's perspective too;
-        // `evaluate()` always returns White's point of view.
-        const score = mate > 0 ? (2000 - Math.abs(mate) * 10) : (-2000 + Math.abs(mate) * 10);
-        return chess.turn() === 'w' ? score : -score;
-      }
-      if (cp !== null) {
-        return chess.turn() === 'w' ? cp : -cp;
+      if (typeof score === 'number') {
+        return turn === 'w' ? score : -score;
       }
     }
-    // Heuristic fallback
-    const raw = evaluateBoard(chess);
-    return raw;
+    // Heuristic fallback, also used when the engine gave nothing usable.
+    return evaluateBoard(chess);
   }
 
   /** Convenience: get a ranked list of candidate moves (for hints). */
   async rankedMoves(chess, { depth = 3, count = 1 } = {}) {
     const fen = chess.fen();
-    const legal = chess.moves({ verbose: true });
+    const position = this.Chess ? new this.Chess(fen) : chess;
+    const legal = position.moves({ verbose: true });
     if (legal.length === 0) return [];
 
     if (this.isNative && this.proc && this.proc.ready) {
-      this.proc.send(`position fen ${fen}`);
-      this.proc.send(`setoption name MultiPV value ${Math.min(count, 5)}`);
-      const first = await this.proc.go(`go depth ${depth}`, {
-        timeoutMs: depth * 400 + 2500,
-        onInfo: () => {}
+      const first = await this.proc.enqueue(async () => {
+        this.proc.send(`position fen ${fen}`);
+        this.proc.send(`setoption name MultiPV value ${Math.min(count, 5)}`);
+        const uci = await this.proc.go(`go depth ${depth}`, {
+          timeoutMs: depth * 400 + 2500,
+          onInfo: () => {}
+        });
+        this.proc.send('setoption name MultiPV value 1');
+        return uci;
       });
-      this.proc.send('setoption name MultiPV value 1');
       const parsed = parseUci(first);
-      if (parsed && legalCheck(chess, parsed)) return [parsed];
+      if (parsed && legalCheck(position, parsed)) return [parsed];
     }
 
     // Pocket fallback: score each root move and sort.
     const scored = [];
     for (const m of legal) {
-      chess.move({ from: m.from, to: m.to, promotion: m.promotion });
-      const s = -negamax(chess, Math.max(0, depth - 1), -Infinity, Infinity);
-      chess.undo();
+      position.move({ from: m.from, to: m.to, promotion: m.promotion });
+      const s = -negamax(position, Math.max(0, depth - 1), -Infinity, Infinity);
+      position.undo();
       scored.push({ move: toMove(m), score: s });
     }
-    chess.load(fen);
+    position.load(fen);
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, count).map((s) => s.move);
   }

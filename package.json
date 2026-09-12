@@ -4,6 +4,9 @@
   "private": true,
   "description": "A friendly, kid-oriented chess app with an interactive coach. Runs entirely in the browser and deploys to Cloudflare Workers.",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -13,11 +16,13 @@
     "test:smoke": "node smoke-test.mjs",
     "test:e2e": "node e2e-test.mjs",
     "test:worker": "node worker-test.mjs",
+    "test:engine": "node engine-test.mjs",
     "shots": "node shots.mjs",
     "preview": "node preview/render-preview.mjs",
     "preview:verify": "node preview/verify-board.mjs"
   },
   "devDependencies": {
-    "puppeteer": "^25.10.0"
+    "puppeteer": "^25.10.0",
+    "wrangler": "^4.131.1"
   }
 }

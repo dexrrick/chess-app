@@ -11,6 +11,7 @@
  *   - cache-control differs for hashed assets vs HTML
  */
 
+import fs from 'node:fs';
 import worker from './src/index.js';
 
 let failures = 0;
@@ -143,6 +144,62 @@ async function req(path, opts = {}) {
   const res = await req('/style.css');
   const body = await res.text();
   check('response body is passed through intact', body === 'body{}', JSON.stringify(body));
+}
+
+/* ------------------------------ 8. _headers ↔ Worker parity --------------- */
+/*
+ * Because `run_worker_first = false`, requests for real files never reach the
+ * Worker — so the security headers that actually protect the site are the ones
+ * in assets/_headers (see the comments in that file). The Worker repeats them
+ * for the responses it generates itself. This block keeps the two in step.
+ */
+{
+  const headersText = fs.readFileSync(new URL('./assets/_headers', import.meta.url), 'utf8');
+
+  /** Parse the `_headers` format: a pattern line plus indented `Name: value`s. */
+  function parseHeadersFile(text) {
+    const rules = [];
+    let rule = null;
+    for (const raw of text.split(/\r?\n/)) {
+      if (!raw.trim() || raw.trim().startsWith('#')) continue;
+      if (!/^\s/.test(raw)) {
+        rule = { pattern: raw.trim(), headers: {} };
+        rules.push(rule);
+        continue;
+      }
+      const m = raw.match(/^\s+([A-Za-z0-9-]+):\s*(.*)$/);
+      if (m && rule) rule.headers[m[1].toLowerCase()] = m[2].trim();
+    }
+    return rules;
+  }
+
+  const rules = parseHeadersFile(headersText);
+  const catchAll = rules.find((r) => r.pattern === '/*');
+  check('_headers covers every asset with a /* rule', !!catchAll,
+    rules.map((r) => r.pattern).join(', ') || '(no rules parsed)');
+
+  const norm = (s) => String(s).replace(/\s+/g, ' ').trim();
+  const assetCsp = catchAll ? catchAll.headers['content-security-policy'] || '' : '';
+  check('_headers sets a Content-Security-Policy', assetCsp.length > 0);
+
+  // Compare the file against what the Worker sends for the very same asset.
+  const res = await req('/app.js');
+  const workerCsp = res.headers.get('Content-Security-Policy') || '';
+  check('_headers CSP matches the Worker CSP exactly',
+    norm(assetCsp) === norm(workerCsp),
+    norm(assetCsp) === norm(workerCsp) ? '' : 'the two policies have drifted');
+
+  for (const name of ['x-content-type-options', 'referrer-policy', 'x-frame-options', 'permissions-policy']) {
+    const fromFile = catchAll ? catchAll.headers[name] || '' : '';
+    const fromWorker = res.headers.get(name) || '';
+    check(`_headers "${name}" matches the Worker's`, fromFile === fromWorker,
+      fromFile === fromWorker ? fromFile : `file="${fromFile}" worker="${fromWorker}"`);
+  }
+
+  // These two are what make the engine work. The asset-layer policy is the one
+  // that actually runs in production, so assert them on it directly.
+  check('_headers CSP permits WebAssembly compilation', assetCsp.includes('wasm-unsafe-eval'));
+  check('_headers CSP permits blob workers', /worker-src[^;]*blob:/i.test(assetCsp));
 }
 
 console.log('\n========================================');
