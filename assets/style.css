@@ -244,8 +244,37 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   pointer-events: none;
   transition: transform var(--anim-speed) ease;
 }
-.piece.piece-w { fill: #ffffff; stroke: #000000; }
-.piece.piece-b { fill: #000000; stroke: #000000; }
+/* Piece colouring.
+   Each piece is a silhouette (.piece-body) plus internal detail lines
+   (.piece-detail). The detail layer is stroked in the CONTRASTING colour, so
+   black pieces keep their line work instead of collapsing into solid blobs.
+   Geometry lives in src/pieces.js. */
+.piece .piece-body {
+  fill: var(--piece-fill, #000000);
+  stroke: #000000;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.piece .piece-detail {
+  fill: none;
+  stroke: var(--piece-detail, #ffffff);
+  stroke-width: 1.15;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.piece.piece-w { --piece-fill: #ffffff; --piece-detail: #000000; }
+.piece.piece-b { --piece-fill: #000000; --piece-detail: #ffffff; }
+
+/* Captured pieces sit in the player bar, outside .square, so the square rule
+   above never applies to them. An inline SVG with only a viewBox has no
+   intrinsic size, which laid these out at 0x0 (i.e. invisible). Size them in
+   em so they follow the player bar's font size. */
+.player-captures .piece {
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.18em;
+}
 
 /* Selected square */
 .square.selected {

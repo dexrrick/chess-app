@@ -13,7 +13,9 @@
     "test:smoke": "node smoke-test.mjs",
     "test:e2e": "node e2e-test.mjs",
     "test:worker": "node worker-test.mjs",
-    "shots": "node shots.mjs"
+    "shots": "node shots.mjs",
+    "preview": "node preview/render-preview.mjs",
+    "preview:verify": "node preview/verify-board.mjs"
   },
   "devDependencies": {
     "puppeteer": "^25.10.0"

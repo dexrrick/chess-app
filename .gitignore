@@ -17,6 +17,9 @@ wdev-err.log
 wrangler-dev.log
 wrangler-err.log
 
+# Piece-preview renders (dev-only comparison images)
+preview/out/
+
 # Ad-hoc probe scripts used during development
 probe*.mjs
 probe.js

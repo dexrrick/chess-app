@@ -97,6 +97,7 @@ run_worker_first   = false     # assets are served directly; Worker is a fallbac
 chess-app/
 ├─ assets/                    # ← everything Cloudflare uploads
 │  ├─ index.html              # semantic markup, app shell
+│  ├─ favicon.svg             # king sprite (mirrors src/pieces.js)
 │  ├─ style.css               # monochrome e-ink / iPad styling
 │  ├─ app.js                  # board rendering, input, game flow, wiring
 │  ├─ src/
@@ -112,6 +113,7 @@ chess-app/
 │  └─ index.js                # Cloudflare Worker (SPA fallback + headers)
 ├─ scripts/
 │  └─ serve.mjs               # zero-dependency static dev server
+├─ preview/                   # dev-only piece preview + verification (not deployed)
 ├─ wrangler.toml              # Cloudflare Workers config
 ├─ smoke-test.mjs             # browser smoke tests
 ├─ e2e-test.mjs               # end-to-end game scenarios
@@ -177,6 +179,35 @@ tier:
 Explanations lean on four ideas a child can act on: **control the centre**,
 **protect the king**, **don't leave pieces hanging**, and **develop your pieces**.
 
+### Piece sprites (`assets/src/pieces.js`)
+
+Each piece is drawn from scratch as **two layers**:
+
+* `.piece-body` — the silhouette, filled with the piece colour and outlined in
+  black.
+* `.piece-detail` — the internal lines (base bands, collars, the king's robe
+  band, the bishop's mitre slit, the knight's mane), stroked in the
+  **contrasting** colour.
+
+That split is what keeps black pieces readable. With a single fill and a single
+stroke for everything, a black piece (black fill + black stroke) loses every
+internal line while a white piece keeps them — the two sides end up looking
+like different sets.
+
+All six pieces share one plinth (`x 11..34`, `y 36.4..40`) so they sit on a
+common baseline. `assets/favicon.svg` mirrors the king; keep the two in step.
+
+`preview/` holds a dev-only harness that renders the shipped set and any
+candidate redraws side by side at several sizes, on both square colours and
+under an e-ink simulation:
+
+```bash
+npm run preview          # writes preview/out/*.png
+npm run preview:verify   # asserts the real app renders pieces correctly
+```
+
+Neither script is uploaded by `wrangler deploy` — they live outside `assets/`.
+
 ### E-ink and iPad tuning (`assets/style.css`)
 
 * Palette is `#000`, `#FFF` and a few mid-greys — no colour anywhere.
@@ -195,7 +226,7 @@ Explanations lean on four ideas a child can act on: **control the centre**,
 ```bash
 npm test              # all three suites, starts its own server
 npm run test:worker   # Worker unit tests (no browser, no network)
-npm run test:smoke    # 35 browser checks: rendering, engine, coach, layout
+npm run test:smoke    # 37 browser checks: rendering, pieces, engine, coach, layout
 npm run test:e2e      # 29 scenario checks: checkmate, promotion, offline…
 ```
 
@@ -256,7 +287,9 @@ Harmless; it only appeared when an extra `[env.*]` block was uncommented.
 
 * [`chess.js`](https://github.com/jhlywa/chess.js) — BSD-2-Clause
 * [`stockfish.js`](https://github.com/nmrugg/stockfish.js) — GPL-3.0
-* Piece sprites are original inline SVG defined in `assets/src/pieces.js`.
+* Piece sprites are original inline SVG drawn on a 45×45 grid in
+  `assets/src/pieces.js` — not derived from any third-party piece set, so no
+  extra licence applies. `assets/favicon.svg` mirrors the king.
 
 Because Stockfish is GPL-3.0, redistributing this app (including the copies in
 `assets/vendor/`) means the combined work must comply with the GPL. Chess
