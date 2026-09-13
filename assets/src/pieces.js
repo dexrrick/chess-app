@@ -30,9 +30,9 @@
  * `assets/favicon.svg` mirrors the king; keep the two in step.
  */
 
-/** Shared plinth, so all six pieces sit on the same baseline. */
+/** A two-step plinth gives every piece the poised Staunton-style stance. */
 const BASE =
-  'M11.9 36.4h21.2a0.9 0.9 0 0 1 .9.9v1.8a0.9 0.9 0 0 1-.9.9H11.9a0.9 0.9 0 0 1-.9-.9v-1.8a0.9 0.9 0 0 1 .9-.9z';
+  'M10.2 37.1h24.6v2.2H10.2z M12.2 34.5h20.6a1.5 1.5 0 0 1 1.5 1.5v1.1H10.7V36a1.5 1.5 0 0 1 1.5-1.5z';
 
 /**
  * One entry per piece type. `body` is filled; `detail` is stroked in the
@@ -47,11 +47,11 @@ export const SHAPES = {
   p: {
     body: [
       BASE,
-      // head (circle r=4.5 @ 22.5,13.9) flowing into a neck, flaring to the foot
-      'M22.5 9.4c2.5 0 4.5 2 4.5 4.5 0 1.7-1 3.2-2.4 4 2.6 1 4.4 3.6 4.4 6.5l1.8 12H14.2l1.8-12c0-2.9 1.8-5.5 4.4-6.5-1.4-.8-2.4-2.3-2.4-4 0-2.5 2-4.5 4.5-4.5z',
+      'M22.5 8.2a4.4 4.4 0 1 1 0 8.8 4.4 4.4 0 0 1 0-8.8z',
+      'M18.8 18.4h7.4l1.9 3.1-1.1 2.2 3.2 10.8H14.8L18 23.7l-1.1-2.2z',
     ],
     detail: [
-      'M16.4 24.4h12.2', // collar where the neck meets the body
+      'M18.2 21.5h8.6',
     ],
   },
 
@@ -59,12 +59,12 @@ export const SHAPES = {
   n: {
     body: [
       BASE,
-      'M14.0 36.4C14.2 30.0 14.6 25.6 15.6 21.6C16.6 18.0 17.6 15.8 18.8 14.2L19.3 11.2L18.9 8.4L20.7 6.6L22.4 9.4C25.0 10.4 27.6 11.9 29.8 14.1C32.0 16.3 33.9 19.3 35.2 24.2C35.5 26.4 32.8 27.8 29.2 29.2C29.6 31.4 30.3 33.9 30.9 36.4Z',
+      'M14.5 34.5c.2-7.5.8-12.7 2.3-16.6 1.1-3.1 2.8-5.7 5.1-7.8l-.7-3.6 2.2-1.6 2.2 4.1c3.2.8 5.8 2.8 7.5 5.5 1.2 1.8 1.9 3.9 2.3 6.1l-3.2 1.2 1.3 2.4-3.6 1.6c.3 3 .9 5.9 1.8 8.7z',
     ],
     detail: [
-      'M23.0 14.4a1.4 1.4 0 0 1 2.8 0',            // eye
-      'M17.2 27.5C17.9 22.5 19.4 18.2 21.9 14.8',  // mane down the neck
-      'M32.4 21.9h1.6',                             // nostril
+      'M25.2 14.2h.1',
+      'M18 27c.9-5.7 2.5-9.8 5.2-12.5',
+      'M29.6 19.1l2.4-.3',
     ],
   },
 
@@ -72,12 +72,11 @@ export const SHAPES = {
   b: {
     body: [
       BASE,
-      'M22.5 10.6c3.1 1.6 5.3 4.8 5.3 8.6 0 2.0-.6 3.8-1.6 5.3L27.4 26.0c1.0 1.3 1.6 2.9 1.6 4.6 0 2.2.6 4.2 1.9 5.8H14.1c1.3-1.6 1.9-3.6 1.9-5.8 0-1.7.6-3.3 1.6-4.6L18.8 24.5c-1.0-1.5-1.6-3.3-1.6-5.3 0-3.8 2.2-7.0 5.3-8.6z', // mitre + collar step + skirt
-      'M22.5 6.8a2 2 0 1 0 .01 0z',   // finial ball
+      'M22.5 7.2c3.8 3.1 6.1 7.1 6.1 11.1 0 2.1-.8 4.1-2.2 5.6l-2 2.1 2.5 8.5H18l2.5-8.5-2-2.1a8.1 8.1 0 0 1-2.2-5.6c0-4 2.4-8 6.2-11.1z',
     ],
     detail: [
-      'M19.6 21.6L25.4 15.8', // mitre slit
-      'M16.4 30.6h12.2',      // band between the collar and the skirt
+      'M18.7 21.2l7.6-8.6',
+      'M19.7 27.2h5.6',
     ],
   },
 
@@ -85,10 +84,11 @@ export const SHAPES = {
   r: {
     body: [
       BASE,
-      'M12.6 10.2h4.6v4.0h3.2v-4.0h4.8v4.0h3.2v-4.0h4.6v7.0h-2.2l2.2 19.2H12.6l2.2-19.2h-2.2z',
+      'M12.2 9.3h4.5v3.8h3.7V9.3h4.2v3.8h3.7V9.3h4.5v7.5h-2.2l-1.5 17.7H15.9l-1.5-17.7h-2.2z',
     ],
     detail: [
-      'M14.8 17.2h16', // line under the battlements
+      'M14.4 16.8h16.2',
+      'M16.4 25.2h12.2',
     ],
   },
 
@@ -96,15 +96,12 @@ export const SHAPES = {
   q: {
     body: [
       BASE,
-      'M12.5 13.6L15.0 20.4L17.5 10.8L20.0 20.4L22.5 9.2L25.0 20.4L27.5 10.8L30.0 20.4L32.5 13.6C32.9 17.4 31.9 20.4 30.0 22.9C29.1 24.2 28.6 25.6 28.5 27.2C28.8 30.3 29.6 33.4 30.8 36.4L14.2 36.4C15.4 33.4 16.2 30.3 16.5 27.2C16.4 25.6 15.9 24.2 15.0 22.9C13.1 20.4 12.1 17.4 12.5 13.6Z',
-      'M12.5 12.6a1.9 1.9 0 1 0 .01 0z',   // five crown pearls
-      'M17.5 9.8a1.9 1.9 0 1 0 .01 0z',
-      'M22.5 8.2a1.9 1.9 0 1 0 .01 0z',
-      'M27.5 9.8a1.9 1.9 0 1 0 .01 0z',
-      'M32.5 12.6a1.9 1.9 0 1 0 .01 0z',
+      // A quiet three-point crown: unmistakably a queen without tiny pearls
+      // that would turn into visual noise on an e-ink screen.
+      'M14.2 10.6l4.2 6.3 2.1-9.1 2 8.1 2-10.6 2 10.6 2-8.1 2.1 9.1 4.2-6.3-2.6 12.5-2.2 11.1H19l-2.2-11.1z',
     ],
     detail: [
-      'M16.4 23.0h12.2', // collar under the crown
+      'M16.1 23.7h12.8',
     ],
   },
 
@@ -112,15 +109,13 @@ export const SHAPES = {
   k: {
     body: [
       BASE,
-      // cross
-      'M21.2 5.6h2.6v3.4h4.8v2.4h-4.8v2.6h-2.6v-2.6h-4.8V9.0h4.8z',
-      // crowned head
-      'M22.5 13.4c2.7 0 4.9 2.2 4.9 4.9 0 1.3-.5 2.5-1.3 3.4l1.6 1.3H17.3l1.6-1.3c-.8-.9-1.3-2.1-1.3-3.4 0-2.7 2.2-4.9 4.9-4.9z',
-      // robed body
-      'M22.5 21.9c-2.5 0-4.6 1.7-5.2 4.1l-1.9 8.0c-.2.9-.9 1.6-1.8 1.9l-.6.2c-.9.3-1.5 1.1-1.5 2.0v.3h22v-.3c0-.9-.6-1.7-1.5-2.0l-.6-.2c-.9-.3-1.6-1-1.8-1.9l-1.9-8.0c-.6-2.4-2.7-4.1-5.2-4.1z',
+      'M21.1 4.8h2.8v3.5h3.8v2.5h-3.8v3h-2.8v-3h-3.8V8.3h3.8z',
+      // Broad shoulders and a tall, tapered stem make the king read first.
+      'M17.3 15.3h10.4l1.2 2.1-2.3 4.7 1.4 2.1 2.2 10.3H15.8L18 24.2l1.4-2.1-2.3-4.7z',
     ],
     detail: [
-      'M18.6 30.2h7.8', // band across the robe
+      'M18.5 23.9h8',
+      'M17.5 29.5h10',
     ],
   },
 };
@@ -131,22 +126,23 @@ const GLYPHS = {
 };
 
 /**
- * Build an SVG string for a chess piece.
+ * Build a sprite-backed chess piece.
  *
- * The two path groups (`.piece-body` / `.piece-detail`) are coloured by
- * `style.css`; see the file header for why the split matters.
+ * The original e-ink set is packaged as one local, transparent two-row sprite
+ * sheet: ivory on the first row and charcoal on the second. Keeping one atlas
+ * avoids twelve network requests while giving the board a consistently drawn
+ * set instead of six unrelated icon shapes.
  *
  * @param {string} type   one of p n b r q k
  * @param {'w'|'b'} color
  * @returns {string} SVG markup
  */
 export function pieceSvg(type, color) {
-  const shape = SHAPES[type];
-  if (!shape) return '';
+  if (!SHAPES[type]) return '';
   const cls = `piece piece-${color === 'w' ? 'w' : 'b'}`;
-  const body = shape.body.map((d) => `<path class="piece-body" d="${d}"/>`).join('');
-  const detail = (shape.detail || []).map((d) => `<path class="piece-detail" d="${d}"/>`).join('');
-  return `<svg class="${cls}" viewBox="0 0 45 45" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">${body}${detail}</svg>`;
+  const col = { k: 0, q: 20, r: 40, b: 60, n: 80, p: 100 }[type];
+  const row = color === 'w' ? 0 : 100;
+  return `<span class="${cls} piece-${type}" style="--sprite-x:${col}%;--sprite-y:${row}%" aria-hidden="true"></span>`;
 }
 
 export function pieceGlyph(type) {

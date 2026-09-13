@@ -197,14 +197,20 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 
 /* ------------------------------- Board ---------------------------------- */
-.board-wrap { display: flex; justify-content: center; }
+.board-wrap {
+  display: flex;
+  justify-content: center;
+  /* Sprite-backed pieces have no intrinsic SVG dimensions, so the wrapper
+     must establish the board width instead of shrink-wrapping its contents. */
+  width: min(100%, var(--board-max));
+}
 
 .board-frame {
   position: relative;
   border: 5px solid var(--black);
   border-radius: 6px;
   background: var(--white);
-  width: min(100%, var(--board-max));
+  width: 100%;
   aspect-ratio: 1 / 1;
   padding: 0;
 }
@@ -247,11 +253,16 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 /* Piece glyph */
 .square .piece {
-  width: 88%;
-  height: 88%;
+  width: 80%;
+  height: 120%;
   display: block;
   pointer-events: none;
   transition: transform var(--anim-speed) ease;
+  background-image: url('./pieces-atlas-inspired.png');
+  background-repeat: no-repeat;
+  /* The artwork is a 6 × 2 sheet whose individual cells are 2:3. */
+  background-size: 600% 200%;
+  background-position: var(--sprite-x) var(--sprite-y);
 }
 /* Piece colouring.
    Each piece is a silhouette (.piece-body) plus internal detail lines
@@ -259,21 +270,21 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
    black pieces keep their line work instead of collapsing into solid blobs.
    Geometry lives in src/pieces.js. */
 .piece .piece-body {
-  fill: var(--piece-fill, #000000);
-  stroke: #000000;
-  stroke-width: 1.5;
+  fill: var(--piece-fill, #292725);
+  stroke: #292725;
+  stroke-width: 1.35;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
 .piece .piece-detail {
   fill: none;
-  stroke: var(--piece-detail, #ffffff);
-  stroke-width: 1.15;
+  stroke: var(--piece-detail, #fbfaf7);
+  stroke-width: 1.05;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
-.piece.piece-w { --piece-fill: #ffffff; --piece-detail: #000000; }
-.piece.piece-b { --piece-fill: #000000; --piece-detail: #ffffff; }
+.piece.piece-w { --piece-fill: #fbfaf7; --piece-detail: #292725; }
+.piece.piece-b { --piece-fill: #292725; --piece-detail: #fbfaf7; }
 
 /* Captured pieces sit in the player bar, outside .square, so the square rule
    above never applies to them. An inline SVG with only a viewBox has no
@@ -283,6 +294,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   width: 1.1em;
   height: 1.1em;
   vertical-align: -0.18em;
+  display: inline-block;
+  background-size: 900% 300%;
 }
 
 /* Selected square */
@@ -291,6 +304,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   background: var(--white);
 }
 .square.selected.dark { background: var(--grey-100); }
+.square.selected .piece { transform: translateY(-2%); }
 
 /* Legal move markers */
 .square.legal::after {
@@ -311,6 +325,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   opacity: 0.7;
   box-sizing: border-box;
 }
+.square.legal:not(.capture)::after { opacity: 0.42; }
 
 /* Last move */
 .square.last-move { box-shadow: inset 0 0 0 4px var(--grey-700); }
@@ -605,7 +620,11 @@ body:not(.animations-enabled) .spinner { animation-duration: 1.6s; }
 .move-list li { break-inside: avoid; }
 
 /* ------------------------------- Help ----------------------------------- */
-.help-list { margin: 0; padding-left: 20px; font-size: 0.96rem; }
+.help-card { border-color: var(--grey-300); padding: 0; }
+.help-card .panel-heading { cursor: pointer; margin: 0; padding: 13px 16px; border: 0; font-weight: 800; }
+.help-card[open] .panel-heading { border-bottom: 2px solid var(--grey-300); }
+.help-card .help-list { margin: 12px 16px 16px; }
+.help-list { padding-left: 20px; font-size: 0.96rem; }
 .help-list li { margin-bottom: 7px; }
 
 /* ------------------------------- Modals --------------------------------- */
@@ -740,4 +759,3 @@ body:not(.animations-enabled) .spinner { animation-duration: 1.6s; }
   .board-frame { forced-color-adjust: none; }
   .square { border-color: var(--black); }
 }
-

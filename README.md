@@ -104,11 +104,12 @@ chess-app/
 ├─ assets/                    # ← everything Cloudflare uploads
 │  ├─ _headers                # security headers for the static files (parsed, not served)
 │  ├─ index.html              # semantic markup, app shell
-│  ├─ favicon.svg             # king sprite (mirrors src/pieces.js)
+│  ├─ favicon.svg             # king mark for the browser tab
 │  ├─ style.css               # monochrome e-ink / iPad styling
 │  ├─ app.js                  # board rendering, input, game flow, wiring
 │  ├─ src/
-│  │  ├─ pieces.js            # inline SVG piece sprites
+│  │  ├─ pieces.js            # sprite-sheet selection and piece metadata
+│  ├─ pieces-atlas-inspired.png # original e-ink chess-piece sprite sheet
 │  │  ├─ engine.js            # Stockfish wrapper + Pocket Bot fallback
 │  │  └─ coach.js             # move grading and kid-friendly explanations
 │  └─ vendor/
@@ -188,23 +189,15 @@ tier:
 Explanations lean on four ideas a child can act on: **control the centre**,
 **protect the king**, **don't leave pieces hanging**, and **develop your pieces**.
 
-### Piece sprites (`assets/src/pieces.js`)
+### Piece sprites (`assets/pieces-atlas-inspired.png`)
 
-Each piece is drawn from scratch as **two layers**:
+The board uses an original, locally bundled **6 × 2 transparent sprite sheet**:
+the first row is ivory, the second is charcoal, and each row is ordered king,
+queen, rook, bishop, knight, pawn. `assets/src/pieces.js` selects the correct
+cell; the browser makes no additional network request after loading the sheet.
 
-* `.piece-body` — the silhouette, filled with the piece colour and outlined in
-  black.
-* `.piece-detail` — the internal lines (base bands, collars, the king's robe
-  band, the bishop's mitre slit, the knight's mane), stroked in the
-  **contrasting** colour.
-
-That split is what keeps black pieces readable. With a single fill and a single
-stroke for everything, a black piece (black fill + black stroke) loses every
-internal line while a white piece keeps them — the two sides end up looking
-like different sets.
-
-All six pieces share one plinth (`x 11..34`, `y 36.4..40`) so they sit on a
-common baseline. `assets/favicon.svg` mirrors the king; keep the two in step.
+The set is intentionally high contrast and shadow-free so it remains readable
+on e-ink displays. `assets/favicon.svg` is a separate king mark for the tab.
 
 `preview/` holds a dev-only harness that renders the shipped set and any
 candidate redraws side by side at several sizes, on both square colours and
@@ -342,9 +335,9 @@ which is GPL-3.0, so the combined work has to be GPL-compatible.
 
 * [`chess.js`](https://github.com/jhlywa/chess.js) — BSD-2-Clause
 * [`stockfish.js`](https://github.com/nmrugg/stockfish.js) — GPL-3.0
-* Piece sprites are original inline SVG drawn on a 45×45 grid in
-  `assets/src/pieces.js` — not derived from any third-party piece set, so no
-  extra licence applies. `assets/favicon.svg` mirrors the king.
+* The chess-piece sprite sheet is original artwork created for this project;
+  it is not derived from a third-party piece set. `assets/favicon.svg` is a
+  separate king mark for the browser tab.
 
 Because Stockfish is GPL-3.0, redistributing this app (including the copies in
 `assets/vendor/`) means the combined work must comply with the GPL. Chess

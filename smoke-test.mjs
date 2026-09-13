@@ -57,21 +57,20 @@ check('board renders 64 squares', sqCount === 64, `count=${sqCount}`);
 const pieceCount = await page.$$eval('.square .piece', (els) => els.length);
 check('32 pieces on the board', pieceCount === 32, `count=${pieceCount}`);
 
-/* Every piece is drawn in two layers: a silhouette (.piece-body) plus internal
-   detail lines (.piece-detail). Without the detail layer a black piece
-   (black fill + black stroke) would render as a featureless blob, so guard it. */
-const pieceLayers = await page.evaluate(() => {
+/* The production set is one local 6 × 2 sprite sheet, with separate ivory and
+   charcoal rows. Assert the real computed asset and row selection. */
+const pieceSprites = await page.evaluate(() => {
   const at = (sq) => document.querySelector(`.square[data-square="${sq}"] .piece`);
   const w = at('e1');   // white king
   const b = at('e8');   // black king
   return {
-    whiteBody: !!w && w.querySelectorAll('.piece-body').length > 0,
-    blackBody: !!b && b.querySelectorAll('.piece-body').length > 0,
-    blackDetail: !!b && b.querySelectorAll('.piece-detail').length > 0
+    whiteSheet: !!w && getComputedStyle(w).backgroundImage.includes('pieces-atlas-inspired.png'),
+    blackSheet: !!b && getComputedStyle(b).backgroundImage.includes('pieces-atlas-inspired.png'),
+    differentRows: !!w && !!b && getComputedStyle(w).backgroundPosition !== getComputedStyle(b).backgroundPosition
   };
 });
-check('pieces render a silhouette layer', pieceLayers.whiteBody && pieceLayers.blackBody);
-check('black pieces keep detail lines (not solid blobs)', pieceLayers.blackDetail);
+check('pieces render from the local sprite sheet', pieceSprites.whiteSheet && pieceSprites.blackSheet);
+check('white and black pieces use distinct sprite rows', pieceSprites.differentRows);
 
 const hasChessJs = await page.evaluate(() => !!window.__chessClub?.state?.Chess);
 check('chess.js loaded', hasChessJs);

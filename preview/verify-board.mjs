@@ -96,49 +96,28 @@ try {
   );
 
   const data = await page.evaluate(() => {
-    const style = (el) => {
-      const cs = getComputedStyle(el);
-      return { fill: cs.fill, stroke: cs.stroke, strokeWidth: cs.strokeWidth };
-    };
-    const svgOf = (sq) => document.querySelector(`.square[data-square="${sq}"] .piece`);
-    const bKing = svgOf('e8');   // black king
-    const wKing = svgOf('e1');   // white king
-    const bKnight = svgOf('b8'); // black knight
+    const pieceOf = (sq) => document.querySelector(`.square[data-square="${sq}"] .piece`);
+    const bKing = pieceOf('e8');
+    const wKing = pieceOf('e1');
     return {
       squares: document.querySelectorAll('.square').length,
       pieces: document.querySelectorAll('.square .piece').length,
-      bodyTags: document.querySelectorAll('.square .piece .piece-body').length,
-      detailTags: document.querySelectorAll('.square .piece .piece-detail').length,
-      piecesMissingALayer: [...document.querySelectorAll('.square .piece')]
-        .filter((svg) => !svg.querySelector('.piece-body') || !svg.querySelector('.piece-detail')).length,
       piecesOutsideBoard: document.querySelectorAll('.piece:not(.square .piece)').length,
-      blackBody: style(bKing.querySelector('.piece-body')),
-      blackDetail: style(bKing.querySelector('.piece-detail')),
-      whiteBody: style(wKing.querySelector('.piece-body')),
-      whiteDetail: style(wKing.querySelector('.piece-detail')),
-      knightDetailCount: bKnight.querySelectorAll('.piece-detail').length
+      blackSprite: getComputedStyle(bKing).backgroundImage,
+      whiteSprite: getComputedStyle(wKing).backgroundImage,
+      blackPosition: getComputedStyle(bKing).backgroundPosition,
+      whitePosition: getComputedStyle(wKing).backgroundPosition
     };
   });
 
   check('64 squares rendered', data.squares === 64, `count=${data.squares}`);
   check('32 pieces rendered', data.pieces === 32, `count=${data.pieces}`);
-  check('every board piece has both layers',
-    data.piecesMissingALayer === 0, `missing=${data.piecesMissingALayer}`);
-  check('board pieces expose silhouette + detail paths',
-    data.bodyTags >= 32 && data.detailTags >= 32,
-    `bodies=${data.bodyTags} details=${data.detailTags}`);
   check('no stray pieces off the board', data.piecesOutsideBoard === 0,
     `outside=${data.piecesOutsideBoard}`);
-  check('black piece body is black-filled',
-    data.blackBody.fill === 'rgb(0, 0, 0)', data.blackBody.fill);
-  check('black piece DETAIL is stroked white (visible on black)',
-    data.blackDetail.stroke === 'rgb(255, 255, 255)', data.blackDetail.stroke);
-  check('white piece body is white-filled',
-    data.whiteBody.fill === 'rgb(255, 255, 255)', data.whiteBody.fill);
-  check('white piece DETAIL is stroked black (visible on white)',
-    data.whiteDetail.stroke === 'rgb(0, 0, 0)', data.whiteDetail.stroke);
-  check('black knight carries its detail lines', data.knightDetailCount > 0,
-    `count=${data.knightDetailCount}`);
+  check('black pieces use the local sprite sheet', /pieces-atlas-inspired\.png/.test(data.blackSprite), data.blackSprite);
+  check('white pieces use the local sprite sheet', /pieces-atlas-inspired\.png/.test(data.whiteSprite), data.whiteSprite);
+  check('piece colours select different sprite rows', data.blackPosition !== data.whitePosition,
+    `${data.blackPosition} vs ${data.whitePosition}`);
 
   // The favicon is a real file now (assets/favicon.svg), not an inline data URI.
   const icon = await page.evaluate(async () => {

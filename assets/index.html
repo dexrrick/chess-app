@@ -147,6 +147,14 @@
         </div>
       </fieldset>
 
+      <fieldset class="field-group" id="colour-group">
+        <legend>Which colour would you like?</legend>
+        <div class="segmented" role="radiogroup" aria-label="Your chess colour">
+          <label class="seg"><input type="radio" name="player-colour" value="w" checked /><span>White</span></label>
+          <label class="seg"><input type="radio" name="player-colour" value="b" /><span>Black</span></label>
+        </div>
+      </fieldset>
+
       <fieldset class="field-group">
         <legend>Options</legend>
         <label class="switch-row">
@@ -173,15 +181,15 @@
       </div>
     </section>
 
-    <section class="panel-card help-card" aria-labelledby="help-heading">
-      <h2 id="help-heading" class="panel-heading"><span aria-hidden="true">&#10067;</span> How to play</h2>
+    <details class="panel-card help-card">
+      <summary id="help-heading" class="panel-heading">&#10067; How to play</summary>
       <ul class="help-list">
         <li><strong>Tap a piece</strong> to see where it can go.</li>
         <li><strong>Tap a glowing square</strong> to move there.</li>
         <li><strong>Hint</strong> shows a good idea.</li>
         <li>Goal: <strong>protect your king</strong>, grab the <strong>center</strong>, and don't leave pieces <strong>hanging</strong>!</li>
       </ul>
-    </section>
+    </details>
 
   </aside>
 </main>

@@ -110,6 +110,7 @@ function savePrefs() {
     localStorage.setItem(PREFS_KEY, JSON.stringify({
       mode: state.mode,
       difficulty: state.difficulty,
+      playerColor: state.playerColor,
       autoFlip: state.autoFlip,
       coachOn: state.coachOn,
       animations: state.animations,
@@ -125,6 +126,7 @@ function loadPrefs() {
     const p = JSON.parse(raw);
     if (p.mode) state.mode = p.mode;
     if (p.difficulty) state.difficulty = p.difficulty;
+    if (p.playerColor === 'w' || p.playerColor === 'b') state.playerColor = p.playerColor;
     if (typeof p.autoFlip === 'boolean') state.autoFlip = p.autoFlip;
     if (typeof p.coachOn === 'boolean') state.coachOn = p.coachOn;
     if (typeof p.animations === 'boolean') state.animations = p.animations;
@@ -190,6 +192,7 @@ function cacheDom() {
   dom.statusLight = $('#status-light');
   dom.statusText = $('#status-text');
   dom.difficultyGroup = $('#difficulty-group');
+  dom.colourGroup = $('#colour-group');
   dom.promotionDialog = $('#promotion-dialog');
   dom.promoChoices = $('#promo-choices');
   dom.resultDialog = $('#result-dialog');
@@ -473,10 +476,12 @@ function renderCaptures() {
     bottomName = colorName(bottomColor);
   } else {
     const humanColor = state.playerColor;
-    bottomColor = state.flipped ? otherColor(humanColor) : humanColor;
+    // Orientation decides which colour is physically at the bottom, including
+    // when the player chooses Black.
+    bottomColor = state.flipped ? 'b' : 'w';
     topColor = otherColor(bottomColor);
-    topName = bottomColor === humanColor ? 'You' : `Computer (${DIFFICULTIES[state.difficulty].label})`;
-    bottomName = topColor === humanColor ? 'You' : `Computer (${DIFFICULTIES[state.difficulty].label})`;
+    topName = topColor === humanColor ? 'You' : `Computer (${DIFFICULTIES[state.difficulty].label})`;
+    bottomName = bottomColor === humanColor ? 'You' : `Computer (${DIFFICULTIES[state.difficulty].label})`;
   }
 
   dom.playerTopName.textContent = topName;
@@ -1207,8 +1212,7 @@ function newGame() {
   cacheEval(null, 0);        // no known evaluation yet; recomputed on first use
   state.hintCount = 0;
   state.busy = false;
-  state.playerColor = 'w';
-  state.flipped = false;
+  state.flipped = state.mode === 'computer' && state.playerColor === 'b';
 
   dom.coachFeed.innerHTML = '';
   closeDialog(dom.resultDialog);
@@ -1333,8 +1337,10 @@ function updateEngineDifficulty() {
   }
   if (state.mode === 'computer') {
     dom.difficultyGroup.style.display = '';
+    dom.colourGroup.style.display = '';
   } else {
     dom.difficultyGroup.style.display = 'none';
+    dom.colourGroup.style.display = 'none';
   }
 }
 
@@ -1362,6 +1368,16 @@ function bindSettings() {
         text: `Computer set to **${DIFFICULTIES[state.difficulty].label}**. ${state.difficulty === 'challenger' ? 'Good luck — this one is tough!' : state.difficulty === 'beginner' ? 'This one is friendly and makes mistakes.' : 'A fair, solid opponent.'}`
       });
       renderCaptures();
+    });
+  });
+
+  document.querySelectorAll('input[name="player-colour"]').forEach((el) => {
+    el.checked = el.value === state.playerColor;
+    el.addEventListener('change', () => {
+      if (!el.checked || state.mode !== 'computer') return;
+      state.playerColor = el.value;
+      savePrefs();
+      newGame();
     });
   });
 
