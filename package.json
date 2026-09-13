@@ -20,6 +20,7 @@
     "test:coach": "node coach-test.mjs",
     "test:a11y": "node a11y-test.mjs",
     "shots": "node shots.mjs",
+    "icons": "node scripts/generate-icons.mjs",
     "preview": "node preview/render-preview.mjs",
     "preview:verify": "node preview/verify-board.mjs"
   },

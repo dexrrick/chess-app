@@ -1614,6 +1614,19 @@ if (document.readyState === 'loading') {
   boot();
 }
 
+/* ==========================================================================
+   Service worker (offline / installable PWA)
+   ========================================================================== */
+
+// Register the service worker after the page has loaded so it never delays the
+// first paint. Skipped on localhost: the dev server and the test suites should
+// keep seeing fresh files, not the last SW cache.
+if ('serviceWorker' in navigator && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => { /* sw is a nice-to-have */ });
+  });
+}
+
 /* Expose a tiny debug surface for smoke tests. */
 window.__chessClub = { state, get dom() { return dom; } };
 

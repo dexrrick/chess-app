@@ -22,6 +22,7 @@ child can understand.
 | **Hints** | Highlights a recommended from/to square on the board |
 | **Modes** | Vs Computer (3 tiers) and 2-player pass & play with auto-flip |
 | **E-ink / iPad** | Monochrome palette, animations off by default, 48px+ squares |
+| **Offline / installable** | A service worker precaches the whole app (including Stockfish), so once loaded it starts instantly and plays fully offline — add it to an iPad home screen as a standalone app |
 | **Accessibility** | Keyboard play, a real `grid`/`row`/`gridcell` board, trapped modal focus, a readable evaluation, and a working skip link |
 
 ---
@@ -97,6 +98,38 @@ run_worker_first   = false     # assets are served directly; Worker is a fallbac
 
 ---
 
+## Offline & installable (PWA)
+
+`assets/sw.js` makes the app load instantly and work with no network at all:
+
+* **Precache** — on first visit the service worker downloads the whole shell
+  (`index.html`, `style.css`, `app.js`, `src/`, the vendored `chess.js` and both
+  Stockfish builds) into a versioned cache. All engine tiers, including the real
+  Stockfish WASM engine, keep working offline.
+* **Instant load** — assets are served from the cache (with a background refresh
+  of anything changed), so a cold start is nearly immediate.
+* **Installable** — `manifest.webmanifest` + `apple-touch-icon.png` +
+  `icon-{192,512}.png` let phones/tablets add Chess Club to their home screen as
+  a standalone app (on iPad: *Share → Add to Home Screen*). iOS needs the PNG
+  touch icon; the SVG favicon alone is ignored for that.
+* **Registration is skipped on `localhost`** so the dev server and test suites
+  never serve a stale SW cache.
+
+**When you deploy changed files, bump `VERSION` at the top of `sw.js`.** The
+cache is keyed by that version, and `activate()` deletes any older cache — a new
+version is what tells each already-open client to re-fetch everything. Without
+it, upgrading clients would keep serving the previous cache via the
+cache-first strategy.
+
+The icons are committed, so builds don't depend on Puppeteer — regenerate them
+only when the favicon artwork changes with `npm run icons`.
+
+There is **no fallback to a cached copy when a build was never downloaded**: the
+first visit needs a connection (as with any site). After that it works offline
+forever.
+
+---
+
 ## Project layout
 
 ```
@@ -105,11 +138,16 @@ chess-app/
 │  ├─ _headers                # security headers for the static files (parsed, not served)
 │  ├─ index.html              # semantic markup, app shell
 │  ├─ favicon.svg             # king mark for the browser tab
+│  ├─ apple-touch-icon.png    # 180×180 home-screen icon (iOS)
+│  ├─ icon-192.png            # PWA manifest icon
+│  ├─ icon-512.png            # PWA manifest icon
+│  ├─ manifest.webmanifest    # installable-PWA metadata (name, icons, standalone)
+│  ├─ sw.js                   # service worker: precache + offline + instant load
 │  ├─ style.css               # monochrome e-ink / iPad styling
 │  ├─ app.js                  # board rendering, input, game flow, wiring
+│  ├─ pieces-atlas-inspired.png # e-ink chess-piece sprite sheet
 │  ├─ src/
-│  │  ├─ pieces.js            # sprite-sheet selection and piece metadata
-│  ├─ pieces-atlas-inspired.png # original e-ink chess-piece sprite sheet
+│  │  ├─ pieces.js            # piece metadata + sprite-sheet cell selection
 │  │  ├─ engine.js            # Stockfish wrapper + Pocket Bot fallback
 │  │  └─ coach.js             # move grading and kid-friendly explanations
 │  └─ vendor/
@@ -120,8 +158,9 @@ chess-app/
 ├─ src/
 │  └─ index.js                # Cloudflare Worker (SPA fallback + headers)
 ├─ scripts/
-│  └─ serve.mjs               # zero-dependency static dev server
-├─ preview/                   # dev-only piece preview + verification (not deployed)
+│  ├─ serve.mjs               # zero-dependency static dev server
+│  └─ generate-icons.mjs      # rasterises favicon.svg → the PWA PNG icons
+└─ preview/                   # dev-only piece preview + verification (not deployed)
 ├─ wrangler.toml              # Cloudflare Workers config
 ├─ LICENSE                    # GPL-3.0
 ├─ .editorconfig              # shared editor settings

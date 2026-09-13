@@ -26,3 +26,9 @@
 # (`public, max-age=0, must-revalidate`) plus the ETag it computes from the file
 # hash. That means a browser always revalidates, so an edited asset is picked up
 # immediately instead of sitting stale in a cache for an hour.
+
+# Exception: never let the service worker script itself be cached. Browsers
+# check for SW updates on navigation; an HTTP cache that returns an old sw.js
+# would delay (or block) clients moving to a new cache version.
+/sw.js
+  Cache-Control: no-cache
