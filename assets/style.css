@@ -259,6 +259,10 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   height: 99%;
   display: block;
   pointer-events: none;
+  /* The white row has a little more transparent padding at its bottom than
+     the black row.  Keep their visual centres aligned without distorting the
+     artwork itself. */
+  transform: translateY(var(--piece-offset-y, 0));
   transition: transform var(--anim-speed) ease;
   background-image: url('./pieces-atlas-inspired.png');
   background-repeat: no-repeat;
@@ -274,26 +278,22 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .piece .piece-body {
   fill: var(--piece-fill, #292725);
   stroke: #292725;
-<<<<<<< HEAD
   stroke-width: 1.35;
-=======
-  stroke-width: 1.15;
->>>>>>> 7d57b8ddd64739e1c7c5ac7bf9d45047d42f4d8c
   stroke-linejoin: round;
   stroke-linecap: round;
 }
 .piece .piece-detail {
   fill: none;
   stroke: var(--piece-detail, #fbfaf7);
-<<<<<<< HEAD
   stroke-width: 1.05;
-=======
-  stroke-width: 0.9;
->>>>>>> 7d57b8ddd64739e1c7c5ac7bf9d45047d42f4d8c
   stroke-linejoin: round;
   stroke-linecap: round;
 }
-.piece.piece-w { --piece-fill: #fbfaf7; --piece-detail: #292725; }
+.square .piece.piece-w {
+  --piece-fill: #fbfaf7;
+  --piece-detail: #292725;
+  --piece-offset-y: -5%;
+}
 .piece.piece-b { --piece-fill: #292725; --piece-detail: #fbfaf7; }
 
 /* Captured pieces sit in the player bar, outside .square, so the square rule
@@ -314,7 +314,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   background: var(--white);
 }
 .square.selected.dark { background: var(--grey-100); }
-.square.selected .piece { transform: translateY(-2%); }
+.square.selected .piece { transform: translateY(calc(var(--piece-offset-y, 0) - 2%)); }
 
 /* Legal move markers */
 .square.legal::after {
@@ -769,7 +769,3 @@ body:not(.animations-enabled) .spinner { animation-duration: 1.6s; }
   .board-frame { forced-color-adjust: none; }
   .square { border-color: var(--black); }
 }
-<<<<<<< HEAD
-=======
-
->>>>>>> 7d57b8ddd64739e1c7c5ac7bf9d45047d42f4d8c
