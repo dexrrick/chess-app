@@ -271,30 +271,12 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   background-position: var(--sprite-x) var(--sprite-y);
 }
 /* Piece colouring.
-   Each piece is a silhouette (.piece-body) plus internal detail lines
-   (.piece-detail). The detail layer is stroked in the CONTRASTING colour, so
-   black pieces keep their line work instead of collapsing into solid blobs.
-   Geometry lives in src/pieces.js. */
-.piece .piece-body {
-  fill: var(--piece-fill, #292725);
-  stroke: #292725;
-  stroke-width: 1.35;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-.piece .piece-detail {
-  fill: none;
-  stroke: var(--piece-detail, #fbfaf7);
-  stroke-width: 1.05;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
+   The white row of the sheet has a little more transparent padding at its
+   bottom than the black row; the offset keeps the two sides visually centred
+   instead of distorting the artwork itself. */
 .square .piece.piece-w {
-  --piece-fill: #fbfaf7;
-  --piece-detail: #292725;
   --piece-offset-y: -5%;
 }
-.piece.piece-b { --piece-fill: #292725; --piece-detail: #fbfaf7; }
 
 /* Captured pieces sit in the player bar, outside .square, so the square rule
    above never applies to them. An inline SVG with only a viewBox has no

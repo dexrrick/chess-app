@@ -85,8 +85,7 @@ const state = {
   evalCp: 0,                 // centipawns, white's perspective
   evalFen: null,             // the position evalCp describes (null = unknown)
   started: false,
-  pendingPromotion: null,
-  hintCount: 0
+pendingPromotion: null
 };
 
 /**
@@ -460,12 +459,7 @@ function renderCaptures() {
   for (const m of hist) {
     if (m.captured) capturedBy[m.color].push(m.captured);
   }
-  const order = { q: 0, r: 1, b: 2, n: 3, p: 4 };
-  const paint = (arr) => arr.sort((a, b) => order[a] - order[b])
-    .map((t) => pieceSvg(t, 'b')).join('');
-
-  dom.playerBottomCaptures.innerHTML = paint(capturedBy.w);
-  dom.playerTopCaptures.innerHTML = paint(capturedBy.b);
+const order = { q: 0, r: 1, b: 2, n: 3, p: 4 };
 
   // Determine who sits at the top.
   let topColor, bottomColor, topName, bottomName;
@@ -1210,8 +1204,7 @@ function newGame() {
   state.gameOver = false;
   state.history = [];
   cacheEval(null, 0);        // no known evaluation yet; recomputed on first use
-  state.hintCount = 0;
-  state.busy = false;
+state.busy = false;
   state.flipped = state.mode === 'computer' && state.playerColor === 'b';
 
   dom.coachFeed.innerHTML = '';
@@ -1502,7 +1495,6 @@ function bindKeyboard() {
 const coachCard = document.querySelector('.coach-card');
 const sidePanel = document.querySelector('.side-panel');
 const boardRegion = document.querySelector('.board-region');
-const coachHome = coachCard ? coachCard.nextElementSibling : null;
 const wideQuery = window.matchMedia('(min-width: 1041px)');
 
 function placeCoach() {

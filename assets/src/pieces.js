@@ -1,33 +1,20 @@
 /**
- * pieces.js — inline SVG chess piece sprites.
+ * pieces.js — chess piece sprites.
  *
- * We draw the pieces ourselves instead of pulling images so that:
- *  - there are zero extra network requests (great for e-ink / offline),
- *  - the shapes are pure black & white, which reads well on low-contrast,
- *    greyscale e-ink panels.
+ * The live board renders each piece from one locally bundled sprite sheet
+ * (`assets/pieces-atlas-inspired.png`, a 6 × 2 grid: ivory pieces on the first
+ * row, charcoal on the second; each row is ordered king, queen, rook, bishop,
+ * knight, pawn). `pieceSvg()` only picks the right cell by emitting
+ * `--sprite-x`/`--sprite-y`, which `style.css` turns into a
+ * `background-position`. That keeps the board free of extra image requests and
+ * works offline and on e-ink panels.
  *
- * The artwork here is drawn from scratch on a 45x45 grid; it is not derived
- * from any third-party piece set, so no extra licence applies.
- *
- * Two layers per piece
- * --------------------
- * Each piece is two groups of paths, and `style.css` colours them
- * differently:
- *
- *   .piece-body    the silhouette — filled with the piece colour and outlined
- *                  in black.
- *   .piece-detail  the internal lines (base bands, collars, the king's robe
- *                  band, the bishop's mitre slit, the knight's mane). These
- *                  are stroked in the CONTRASTING colour, so a black piece
- *                  gets white detail lines and a white piece gets black ones.
- *
- * The detail layer is what stops a black piece from collapsing into a solid
- * blob. With one fill and one stroke for everything, a black piece (black fill
- * + black stroke) loses every internal line, while a white piece keeps them —
- * which is why the two sides used to look like different sets.
- *
- * Shared baseline: every piece stands on one plinth (x 11..34, y 36.4..40).
- * `assets/favicon.svg` mirrors the king; keep the two in step.
+ * `SHAPES`/`BASE` below are raw SVG drawings used only by the dev-only preview
+ * harness (`preview/`) to experiment with the artwork — they are not what the
+ * live app renders. They are original work on a 45x45 grid, not derived from
+ * any third-party piece set, so no extra licence applies. They share one plinth
+ * (x 11..34, y 36.4..40); `assets/favicon.svg` mirrors the king — keep the two
+ * in step.
  */
 
 /** A two-step plinth gives every piece the poised Staunton-style stance. */
@@ -120,11 +107,6 @@ export const SHAPES = {
   },
 };
 
-/** Unicode fallback glyphs, used if SVG rendering is unavailable. */
-const GLYPHS = {
-  k: '\u265A', q: '\u265B', r: '\u265C', b: '\u265D', n: '\u265E', p: '\u265F'
-};
-
 /**
  * Build a sprite-backed chess piece.
  *
@@ -133,9 +115,9 @@ const GLYPHS = {
  * avoids twelve network requests while giving the board a consistently drawn
  * set instead of six unrelated icon shapes.
  *
- * @param {string} type   one of p n b r q k
+* @param {string} type   one of p n b r q k
  * @param {'w'|'b'} color
- * @returns {string} SVG markup
+ * @returns {string} sprite <span> markup
  */
 export function pieceSvg(type, color) {
   if (!SHAPES[type]) return '';
@@ -143,10 +125,6 @@ export function pieceSvg(type, color) {
   const col = { k: 0, q: 20, r: 40, b: 60, n: 80, p: 100 }[type];
   const row = color === 'w' ? 0 : 100;
   return `<span class="${cls} piece-${type}" style="--sprite-x:${col}%;--sprite-y:${row}%" aria-hidden="true"></span>`;
-}
-
-export function pieceGlyph(type) {
-  return GLYPHS[type] || '';
 }
 
 /**
