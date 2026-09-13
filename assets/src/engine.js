@@ -37,10 +37,13 @@ const CDN_SCRIPTS = ['stockfish.wasm.js', 'stockfish.js'];
 export const DIFFICULTIES = {
   beginner: {
     label: 'Beginner',
-    skill: 1,
+    skill: 0,
     depth: 1,
-    movetimeMs: 250,
-    blunderChance: 0.30,
+    movetimeMs: 120,
+    // This setting applies to both Stockfish and the fallback bot.  The
+    // beginner is intentionally a sparring partner for children, not merely
+    // a low-depth engine that still spots every free piece.
+    blunderChance: 0.80,
     orderedMoves: 5
   },
   casual: {
@@ -220,11 +223,10 @@ function pocketBotMove(chess, opts) {
 
   scored.sort((a, b) => b.score - a.score);
 
-  // Deliberate slip-ups for beginner mode: sometimes take a worse move.
+  // Deliberate slip-ups for beginner mode: usually make a quiet, harmless
+  // move instead of finding a tactical reply.
   if (blunderChance > 0 && Math.random() < blunderChance && scored.length > 1) {
-    const window = Math.min(scored.length - 1, 3);
-    const pick = 1 + Math.floor(Math.random() * window);
-    return toMove(scored[pick].move);
+    return toMove(pickGentleMove(legal, scored[0].move));
   }
 
   // Tiny random tie-break among near-equal moves so games vary.
@@ -232,6 +234,17 @@ function pocketBotMove(chess, opts) {
   const ties = scored.filter((s) => s.score >= best - 15);
   const chosen = ties[Math.floor(Math.random() * ties.length)];
   return toMove(chosen.move);
+}
+
+/** Pick a legal move that gives a young player room to discover tactics. */
+function pickGentleMove(legal, bestMove) {
+  // No captures, checks or promotions: it will develop/push pieces, but it
+  // will not immediately punish a child for overlooking one square.
+  const quiet = legal.filter((m) => !m.captured && !m.promotion && !/[+#]/.test(m.san));
+  const pool = quiet.length ? quiet : legal;
+  const alternatives = pool.filter((m) => m.from !== bestMove.from || m.to !== bestMove.to);
+  const choices = alternatives.length ? alternatives : pool;
+  return choices[Math.floor(Math.random() * choices.length)];
 }
 
 function toMove(m) {
@@ -704,6 +717,12 @@ export class Engine {
       });
       const parsed = parseUci(uci);
       if (parsed && legalCheck(position, parsed)) {
+        // Stockfish's Skill Level 0 is still surprisingly sharp for young
+        // children.  Give Beginner an explicit, consistent chance to choose a
+        // quiet legal move so it behaves gently in the normal WASM path too.
+        if (key === 'beginner' && Math.random() < preset.blunderChance) {
+          return toMove(pickGentleMove(position.moves({ verbose: true }), parsed));
+        }
         return parsed;
       }
       // Engine gave an unusable answer — fall through to the pocket bot so

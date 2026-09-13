@@ -1296,11 +1296,12 @@ async function hint() {
       const m = moves[0];
       state.hint = { from: m.from, to: m.to };
       const san = sanFor(m);
+      const details = hintDetailsFor(m);
       addBubble({
         tier: 'info',
         title: 'Hint',
         move: san,
-        text: describeHint({ san, from: m.from, to: m.to, tier: 'best' })
+        text: describeHint({ san, from: m.from, to: m.to, tier: 'best', details })
       });
     } else {
       addBubble({ tier: 'info', title: 'Hint', text: 'I could not find a good move — try looking for a piece you can protect or a square in the centre.' });
@@ -1319,6 +1320,27 @@ function sanFor(uciMove) {
     return m ? m.san : `${uciMove.from}-${uciMove.to}`;
   } catch {
     return `${uciMove.from}-${uciMove.to}`;
+  }
+}
+
+/** Board facts for a hint, so the coach explains its purpose rather than only
+ * naming two squares. The clone keeps the live game completely untouched. */
+function hintDetailsFor(uciMove) {
+  try {
+    const clone = new state.Chess(state.chess.fen());
+    const move = clone.move({ from: uciMove.from, to: uciMove.to, promotion: uciMove.promotion || 'q' });
+    if (!move) return {};
+    return {
+      piece: move.piece,
+      wasCapture: !!move.captured,
+      capturedPiece: move.captured || null,
+      wasCheck: /[+#]/.test(move.san),
+      wasCastle: move.flags.includes('k') || move.flags.includes('q'),
+      isDevelopment: !move.captured && (move.piece === 'n' || move.piece === 'b') &&
+        HOME_RANK_FOR(move.color).includes(move.from)
+    };
+  } catch {
+    return {};
   }
 }
 

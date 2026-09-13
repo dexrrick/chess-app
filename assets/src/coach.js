@@ -130,7 +130,7 @@ export function describeMove(ctx) {
       reasons.push('your little pawn grew up into a big piece!');
     }
     if (CENTER_SQUARES.has(to)) {
-      reasons.push('that plant a piece right in the centre, where it can see the most squares.');
+      reasons.push(`your ${PIECE_NAMES[details.piece] || 'piece'} is right in the centre, where it can see the most squares.`);
     } else if (EXTENDED_CENTER.has(to)) {
       reasons.push('good — you are helping control the middle of the board.');
     }
@@ -169,13 +169,25 @@ export function describeMove(ctx) {
  * without a tier every hint fell back to the same generic sentence.
  */
 export function describeHint(hintCtx) {
-  const { san, from, to, tier } = hintCtx;
+  const { san, from, to, tier, details = {} } = hintCtx;
   const strong = tier === 'brilliant' || tier === 'best';
+  let why = 'It keeps everything safe and makes your position a bit better.';
+  if (details.wasCapture) {
+    why = `It wins their ${PIECE_NAMES[details.capturedPiece] || 'piece'} safely.`;
+  } else if (details.wasCheck) {
+    why = 'It gives check, so their king must answer you.';
+  } else if (details.wasCastle) {
+    why = 'It puts your king somewhere safer and brings your rook into play.';
+  } else if (details.isDevelopment) {
+    why = `It brings out your ${PIECE_NAMES[details.piece] || 'piece'} — then try not to move it again too soon.`;
+  } else if (CENTER_SQUARES.has(to)) {
+    why = 'It takes space in the centre, where your pieces can reach more squares.';
+  }
   return [
     `Try ${san} — move from ${from} to ${to}.`,
     strong
-      ? 'This is a strong idea. Look at what it attacks!'
-      : 'This keeps everything safe and makes your position a bit better.'
+      ? `This is a strong idea. ${why} Then look at what it attacks!`
+      : why
   ].join(' ');
 }
 
