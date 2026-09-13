@@ -272,14 +272,22 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .piece .piece-body {
   fill: var(--piece-fill, #292725);
   stroke: #292725;
+<<<<<<< HEAD
   stroke-width: 1.35;
+=======
+  stroke-width: 1.15;
+>>>>>>> 7d57b8ddd64739e1c7c5ac7bf9d45047d42f4d8c
   stroke-linejoin: round;
   stroke-linecap: round;
 }
 .piece .piece-detail {
   fill: none;
   stroke: var(--piece-detail, #fbfaf7);
+<<<<<<< HEAD
   stroke-width: 1.05;
+=======
+  stroke-width: 0.9;
+>>>>>>> 7d57b8ddd64739e1c7c5ac7bf9d45047d42f4d8c
   stroke-linejoin: round;
   stroke-linecap: round;
 }
@@ -759,3 +767,7 @@ body:not(.animations-enabled) .spinner { animation-duration: 1.6s; }
   .board-frame { forced-color-adjust: none; }
   .square { border-color: var(--black); }
 }
+<<<<<<< HEAD
+=======
+
+>>>>>>> 7d57b8ddd64739e1c7c5ac7bf9d45047d42f4d8c

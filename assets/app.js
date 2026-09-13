@@ -1602,3 +1602,4 @@ if (document.readyState === 'loading') {
 
 /* Expose a tiny debug surface for smoke tests. */
 window.__chessClub = { state, get dom() { return dom; } };
+
