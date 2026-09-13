@@ -253,8 +253,10 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 /* Piece glyph */
 .square .piece {
-  width: 80%;
-  height: 120%;
+  /* The sheet cells are 2:3. This fills the square confidently on a Boox
+     while keeping the stepped bases inside their own rank. */
+  width: 66%;
+  height: 99%;
   display: block;
   pointer-events: none;
   transition: transform var(--anim-speed) ease;
