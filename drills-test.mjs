@@ -35,6 +35,23 @@ function lcg(seed = 42) {
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
 }
 
+/** Same FEN with the side to move swapped (for probing the enemy side). */
+function flipTurn(fen) {
+  const [pieces, turn, ...rest] = fen.split(' ');
+  return [pieces, turn === 'w' ? 'b' : 'w', ...rest].join(' ');
+}
+
+/** All the moves in the position that actually deliver checkmate. */
+function matingMoves(c) {
+  const mates = [];
+  for (const m of c.moves({ verbose: true })) {
+    c.move(m);
+    if (c.isCheckmate()) mates.push(m.san);
+    c.undo();
+  }
+  return mates;
+}
+
 /* ---- 1. drill catalogue is coherent ---- */
 {
   check('two drills are registered', DRILL_IDS.length === 2, DRILL_IDS.join(','));
@@ -142,6 +159,35 @@ function lcg(seed = 42) {
     check(`makePuzzle('${id}') returns a ${id} puzzle`, p && p.drill === id);
     check(`makePuzzle('${id}') has goal/hint text`, p.hint && p.hint.length > 10);
   }
+}
+
+/* ---- 11. the mate-one generator composes unique, legal, varied mates ---- */
+{
+  const seen = new Set();
+  const fens = new Set();
+  let got = 0;
+  for (let i = 0; i < 40; i++) {
+    const p = mateOnePuzzle(Chess, { rng: lcg(1000 + i), seen });
+    if (!p) continue;
+    got++;
+    fens.add(p.fen);
+    const c = new Chess(p.fen);
+    check(`gen #${i} starts quiet (White to move, nobody checked)`,
+      c.turn() === 'w' && !c.inCheck() && !new Chess(flipTurn(p.fen)).inCheck(), p.fen);
+    const mates = matingMoves(c);
+    check(`gen #${i} has exactly one mating move`, mates.length === 1,
+      mates.join(',') || 'none');
+    try {
+      const c2 = new Chess(p.fen);
+      c2.move(p.targetSan);
+      check(`gen #${i} advertised mate "${p.targetSan}" is legal and mates`, c2.isCheckmate(), p.targetSan);
+    } catch {
+      check(`gen #${i} advertised mate "${p.targetSan}" is legal and mates`, false, 'throws');
+    }
+  }
+  check('generator produced puzzles across seeds', got >= 30, `got=${got}`);
+  check('generated puzzles within one session are all distinct', fens.size === got,
+    `unique=${fens.size} got=${got} (seen-set dedup)`);
 }
 
 /* ---- 9. defence probe uses the flipped-turn trick correctly ---- */

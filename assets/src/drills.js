@@ -7,10 +7,12 @@
  *                 start position produces a position where White can capture
  *                 an undefended enemy piece. Pure chess.js, no engine.
  *
- *   mate-one    — "checkmate in one move": a hand-verified set of positions.
- *                 Each one is checked at test time to be a genuine mate-in-1
- *                 for White, so judging needs no engine either (a move that
- *                 leaves Black checkmated is by definition the winning move).
+ *   mate-one    — "checkmate in one move": positions composed procedurally
+ *                 from classic back-rank traps and rooted heavy-piece mates.
+ *                 Every candidate is re-verified live with chess.js to have
+ *                 EXACTLY ONE mating move, so judging needs no engine either
+ *                 (a move that leaves Black checkmated is the winning move).
+ *                 The hand-curated pool below is only a safety-net fallback.
  *
  * Everything here takes a `Chess` constructor as an argument so the module has
  * no static dependency on chess.js (the app loads it dynamically with CDN
@@ -96,6 +98,7 @@ export function freePiecePuzzle(Chess, { rng = Math.random, maxGames = 60, seen 
 
     const fen = c.fen();
     if (seen && seen.has(fen)) continue;
+    if (seen) seen.add(fen);
     return { drill: 'free-piece', fen, solutions: picks, target: { from: best.from, to: best.to }, targetSan: best.san, ...describeFreePiece(best.captured, best.to, other(c.turn())) };
   }
   return null;
@@ -133,24 +136,138 @@ export const MATE_ONE_PUZZLES = [
 ];
 
 let _lastMateIndex = -1;
+const FILES = 'abcdefgh';
+const sqName = (f, r) => FILES[f] + (r + 1);   // 0..7 file/rank -> 'a1'..'h8'
 
-export function mateOnePuzzle(Chess, { rng = Math.random } = {}) {
-  const pool = MATE_ONE_PUZZLES;
-  let i = Math.floor(rng() * pool.length);
-  if (pool.length > 1 && i === _lastMateIndex) i = (i + 1) % pool.length;
-  _lastMateIndex = i;
-  const p = pool[i];
-  const mv = new Chess(p.fen).move(p.solution);
+/** Serialize a {square: piece} board as a FEN with White to move, no rights. */
+function fenOf(board) {
+  let out = '';
+  for (let r = 7; r >= 0; r--) {
+    let row = '', gap = 0;
+    for (let f = 0; f < 8; f++) {
+      const p = board[sqName(f, r)];
+      if (p) { if (gap) { row += gap; gap = 0; } row += p; } else gap++;
+    }
+    if (gap) row += gap;
+    out += (out ? '/' : '') + row;
+  }
+  return `${out} w - - 0 1`;
+}
+
+/**
+ * Compose a near-mate base: a black king pinned to the 8th rank by its own
+ * pawn wall, and a rook/queen parked on the far edge file whose single slide
+ * to the 8th rank delivers mate. White's king just keeps him off the lane.
+ */
+function makeMateBoard(rng) {
+  const board = {};
+  const corner = rng() < 0.6;                           // tucked in a8/h8 vs c8..g8
+  const heavy = rng() < 0.5 ? 'Q' : 'R';
+  const kf = corner ? (rng() < 0.5 ? 0 : 7) : 2 + Math.floor(rng() * 5);
+  board[sqName(kf, 7)] = 'k';
+  for (let f = Math.max(0, kf - 1); f <= Math.min(7, kf + 1); f++) {
+    board[sqName(f, 6)] = 'p';                          // pawn wall on rank 7
+  }
+  const heavyFile = rng() < 0.5 ? 0 : 7;                // far edge file
+  const minHr = corner && heavy === 'Q' ? 1 : 0;        // corner queens can't sit on the checking diagonal
+  board[sqName(heavyFile, minHr + Math.floor(rng() * (6 - minHr)))] = heavy;
+  const wkf = heavyFile === 0 ? 1 + Math.floor(rng() * 7) : Math.floor(rng() * 7);
+  board[sqName(wkf, 0)] = 'K';                          // White king on his back rank
+  return { board, heavyFile };
+}
+
+/**
+ * Verify a composed board is a quiet (no side in check, White to move) legal
+ * position in which EXACTLY ONE White move checkmates. Returns {fen, mate}.
+ */
+function inspectMateOne(Chess, board) {
+  const fen = fenOf(board);
+  let c;
+  try { c = new Chess(fen); } catch { return null; }
+  if (c.turn() !== 'w' || c.inCheck() || c.isCheckmate() || c.isStalemate()) return null;
+  if (new Chess(flippedTurnFen(fen)).inCheck()) return null;   // Black already in check
+  const mates = [];
+  for (const m of c.moves({ verbose: true })) {
+    c.move(m);
+    if (c.isCheckmate()) mates.push({ from: m.from, to: m.to, san: m.san });
+    c.undo();
+  }
+  if (mates.length !== 1) return null;
+  return { fen, mate: mates[0] };
+}
+
+const MATE_DECOYS = ['p', 'p', 'p', 'N', 'N', 'N', 'B', 'B', 'R'];
+
+function pickDecoySquare(board, rng, heavyFile) {
+  const empties = [];
+  for (let f = 0; f < 8; f++) {
+    if (f === heavyFile) continue;                       // never block the mating lane
+    for (let r = 0; r < 6; r++) {                        // ranks 1..6 only
+      const s = sqName(f, r);
+      if (!board[s]) empties.push(s);
+    }
+  }
+  return empties.length ? empties[Math.floor(rng() * empties.length)] : null;
+}
+
+/** Add a little noise (black pawns / White minors), keeping the unique mate. */
+function decorateMateBoard(board, heavyFile, rng, isGood) {
+  const want = rng() < 0.5 ? Math.floor(rng() * 3) : 1;
+  for (let n = 0; n < want; n++) {
+    let placed = false;
+    for (let t = 0; t < 15 && !placed; t++) {
+      const s = pickDecoySquare(board, rng, heavyFile);
+      if (!s) break;
+      const piece = MATE_DECOYS[Math.floor(rng() * MATE_DECOYS.length)];
+      board[s] = piece;
+      if (isGood(board)) placed = true;
+      else delete board[s];
+    }
+    if (!placed) break;
+  }
+}
+
+function puzzleFromMate(fen, mate) {
   return {
     drill: 'mate-one',
-    fen: p.fen,
-    solutions: [p.solution],
-    target: { from: mv.from, to: mv.to },
-    targetSan: p.solution,
+    fen,
+    solutions: [mate.san],
+    target: { from: mate.from, to: mate.to },
+    targetSan: mate.san,
     goal: 'Deliver checkmate in ONE move!',
     caption: 'The black king is nearly trapped — one move finishes the job.',
-    hint: `Play ${p.solution} and the king will have no safe square to run to.`
+    hint: `Play ${mate.san} and the king will have no safe square to run to.`
   };
+}
+
+/** Draw from the hand-curated pool as a rare fallback (seen-aware). */
+function curatedMateOne(Chess, rng, seen) {
+  const pool = MATE_ONE_PUZZLES;
+  const start = Math.floor(rng() * pool.length);
+  for (let k = 0; k < pool.length; k++) {
+    const i = (start + k) % pool.length;
+    const p = pool[i];
+    if (i === _lastMateIndex || (seen && seen.has(p.fen))) continue;
+    if (seen) seen.add(p.fen);
+    _lastMateIndex = i;
+    const mv = new Chess(p.fen).move(p.solution);
+    return puzzleFromMate(p.fen, { from: mv.from, to: mv.to, san: p.solution });
+  }
+  return null;
+}
+
+export function mateOnePuzzle(Chess, { rng = Math.random, seen } = {}) {
+  for (let attempt = 0; attempt < 150; attempt++) {
+    const { board, heavyFile } = makeMateBoard(rng);
+    if (!inspectMateOne(Chess, board)) continue;
+    decorateMateBoard(board, heavyFile, rng, (b) => !!inspectMateOne(Chess, b));
+    const got = inspectMateOne(Chess, board);
+    if (!got) continue;
+    if (seen && seen.has(got.fen)) continue;
+    if (seen) seen.add(got.fen);
+    return puzzleFromMate(got.fen, got.mate);
+  }
+  return curatedMateOne(Chess, rng, seen);
 }
 
 /** Build a fresh puzzle for a drill id (used by app.js for each new puzzle). */

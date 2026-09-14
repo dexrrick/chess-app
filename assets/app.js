@@ -1298,8 +1298,10 @@ const PRAISE = {
   'mate-one': 'You are learning to spot checkmating moves!'
 };
 
+const puzzleSeen = new Set();   // FENs already shown this session, so drills stay varied
+
 function newPuzzle() {
-  state.puzzle = makePuzzle(state.Chess, state.drill);
+  state.puzzle = makePuzzle(state.Chess, state.drill, { seen: puzzleSeen });
   const p = state.puzzle;
   if (!p) return;
 
