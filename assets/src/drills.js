@@ -66,6 +66,15 @@ export function invertPuzzleFen(fen) {
   return `${rows.join('/')} ${other(turn)} - - ${half} ${full}`;
 }
 
+export function mirrorPuzzleFen(fen) {
+  const [placement, turn, , , half = '0', full = '1'] = fen.split(' ');
+  const rows = placement.split('/').map((row) => {
+    const expanded = row.replace(/[1-8]/g, (n) => ' '.repeat(Number(n))).split('').reverse().join('');
+    return expanded.replace(/ {1,8}/g, (spaces) => String(spaces.length));
+  });
+  return `${rows.join('/')} ${turn} - - ${half} ${full}`;
+}
+
 /** Auto-scaling level picker: streak 3 -> level 2, streak 7 -> level 3. */
 export function levelForStreak(streak) {
   if (streak >= 7) return 3;
@@ -144,19 +153,14 @@ const FREE_LEVELS = {
  * session from repeating a puzzle; `level` scales the target value, the clutter
  * (deeper plies) and whether the best grab is required.
  */
-const FREE_PIECE_TEMPLATES = [
-  { id: 'free-rook', motif: 'hanging-rook', difficulty: 1, fen: '6k1/5ppp/r7/1P6/8/8/8/6K1 w - - 0 1' },
-  { id: 'free-knight', motif: 'hanging-knight', difficulty: 1, fen: '6k1/5ppp/8/8/6n1/7P/8/6K1 w - - 0 1' },
-  { id: 'free-bishop', motif: 'hanging-bishop', difficulty: 1, fen: 'r1bqkbnr/pp1ppppp/3N4/8/8/8/8/4K3 w kq - 0 1' },
-  { id: 'free-queen', motif: 'hanging-queen', difficulty: 1, fen: '6k1/5ppp/8/8/3q4/4P3/8/6K1 w - - 0 1' },
-  { id: 'choice-rook', motif: 'multiple-candidates', difficulty: 2, fen: '6k1/8/p7/1P6/8/8/3r4/3R2K1 w - - 0 1' },
-  { id: 'choice-bishop', motif: 'minor-piece-capture', difficulty: 2, fen: '6k1/5ppp/8/2b5/1P6/8/8/6K1 w - - 0 1' },
-  { id: 'pinned-defender', motif: 'defender-pinned', difficulty: 3, fen: '6k1/5ppp/r7/1P6/8/8/8/6K1 w - - 0 1' },
-  { id: 'best-capture', motif: 'multiple-candidates', difficulty: 3, fen: '6k1/8/p7/1P6/8/8/3r4/3R2K1 w - - 0 1' }
+const CURATED_FREE_FENS = [
+ 'rBbqkb1r/1p1ppp2/6p1/pNp2n1p/3P3P/1P6/P1P1PPP1/R2QKBNR b KQkq - 0 7','r2qkb1r/pbppp2p/Qp3ppn/8/5P2/2P5/PP1PP1PP/RNB1KBNR w KQkq - 1 7','rnq1kbnr/1pp1pp1p/3P2p1/p7/4P3/6P1/PPbP1P1P/RNBQK1NR w KQkq - 1 8','rnbqkbnr/1p6/3pNpp1/p1p4p/P5P1/1P5N/2PPPP1P/R1BQKBR1 b Qkq - 0 9','rnbk1b1r/p1Nppp1p/1p5q/2p3p1/1P2n2P/4PN2/P1PP1PP1/R1BQKBR1 w Q - 2 9','1rbqkb2/1ppnppp1/p1n5/3p2Nr/3P2Pp/2P2P2/PP1NP2P/R1BQKB1R w K - 3 10','rnbq1rk1/bp1p1ppp/p1p5/4pn2/6P1/NP1P1P1P/P1P1P1BR/R1B1QK2 w - - 1 11','r1b2b1r/1pppk2p/p3p3/n4p1n/1PPP3q/N3P1p1/P4PPP/R1BQKB1R w K - 0 13','rn1k1b1r/pp1bp2p/6pn/q1p2p1Q/BP1p3P/N3P2R/P1PP1PP1/R1BK2N1 w - - 0 11','rnbqk2r/3pppb1/Pp3n1B/2p4p/2P3p1/P2P3N/4PPPP/RN1QKB1R w KQkq - 3 10','r2q1bnr/p1p1pk2/n4p1p/3p2p1/P1pPb1P1/RPN5/1B1QPP1P/4KBNR b K - 5 11','rn1qkB1r/2pb1p1p/3pp1pn/pp6/2PP4/P6N/1P2PPPP/RN1QKB1R w KQkq - 0 8','rn2kbnr/p1p2pp1/bp1pp2p/P3P3/q7/3B1P2/1PPP2P1/RNBQ1KNR w kq - 2 9','r1b1kb1r/3qpp1p/pp1p1n2/n1p1N3/5p1P/1PPP2PR/P2QP3/RNBK1B2 b kq - 1 11','1nbqk1nr/3pp1bp/r4pp1/p1P1N3/p3P3/P2P3P/1P3PP1/1RBQKB1R b Kk - 0 13','r1b2bnr/pppkppp1/2n4p/N1Pp1P2/P1Q5/3B4/RP1P1PPP/1NB1K1R1 b - - 2 14','r1bqkb1r/p1ppp3/Bp4pn/5p1p/P5PP/2N1P3/1PPP1P2/R1BQK1NR b Qkq - 2 8','rnb1kbnr/pp1ppppp/8/2p5/2P2P2/3PB2P/PP2P1q1/RN2KBNR b KQkq - 0 7','r1b1k1nr/pp1ppp1p/B1p2P1b/2n1q1p1/8/4PN2/PPPP2PP/RNBQK1R1 w Qkq - 7 8','r3kbnr/pp1b2p1/2q1ppnp/PPpp1P2/2B5/4P2P/1BPPNRP1/RN1Q2K1 b - - 0 14','rnq1kbn1/4p1p1/2p2p1r/Pp5p/2p2P2/N2Q2PP/P2PP1B1/R1BbK1NR w KQq - 4 13','r1b2b1r/ppkq1p1p/2ppp3/5Pp1/4n2N/3QP2P/PP1P2P1/RNBK1BR1 b - - 3 13','rnbqk1nr/p1p5/1p1pp3/5ppp/3N2PP/b1N5/PPPPPP2/R1BQKB1R w KQkq - 0 8','r1b2bnr/1p1p1kpN/1q3p1p/pnp1p3/2N1P2P/1PQ5/P1PP1PP1/1RB1KB1R w K - 7 14','3r1bnr/pppkq2p/3p2p1/4ppP1/1nP1PPb1/P6P/1P1PQ1B1/RNB1K1NR w KQ - 1 11','rn2kb1r/p5p1/1ppB1n1p/3P1p2/5P1N/P4b2/RPP1B1PP/1N1QK2R b Kkq - 0 13','1nb1k1nr/2p3p1/rp1p1p1p/8/pbPPp1P1/4P2N/PP1Q1PRP/RNBK1B2 w k - 0 12','r1b1kbr1/pp1pp1p1/1N3n2/2p2pBp/3PP1n1/5PP1/P1P3P1/R2QKBNR b KQq - 4 13','r1b1kb1r/1ppn1p2/p2p2pn/4p1qp/P2B1N1P/NP1P2P1/2PKPP2/R3QB1R b kq - 2 14','1nbqk1nr/1p1pp1Bp/8/r1p2pp1/p2P4/2N1P3/PPP2PPP/R2QKBNR w KQk - 2 8'
 ];
+const FREE_PIECE_TEMPLATES = CURATED_FREE_FENS.map((fen, i) => ({ id: `free-base-${i + 1}`, fen, motif: 'clean-capture', difficulty: i < 10 ? 1 : i < 20 ? 2 : 3 }));
 
-function freePuzzleFromTemplate(Chess, template, sideToMove, level) {
-  const fen = sideToMove === 'b' ? invertPuzzleFen(template.fen) : template.fen;
+function freePuzzleFromTemplate(Chess, template, sideToMove, level, mirrored = false) {
+  let fen = sideToMove === 'b' ? invertPuzzleFen(template.fen) : template.fen;
+  if (mirrored) fen = mirrorPuzzleFen(fen);
   const chess = new Chess(fen);
   const picks = findHangingCaptures(Chess, chess);
   const best = picks[0];
@@ -177,10 +181,10 @@ function freePuzzleFromTemplate(Chess, template, sideToMove, level) {
 export function freePiecePuzzle(Chess, { rng = Math.random, seen, level = 1, scheduler } = {}) {
   const pool = FREE_PIECE_TEMPLATES.filter((p) => p.difficulty <= level);
   const start = Math.floor(rng() * pool.length);
-  for (let n = 0; n < pool.length * 2; n++) {
+  for (let n = 0; n < pool.length * 4; n++) {
     const template = pool[(start + n) % pool.length];
     for (const side of n % 2 ? ['b', 'w'] : ['w', 'b']) {
-      const p = freePuzzleFromTemplate(Chess, template, side, level);
+      const p = freePuzzleFromTemplate(Chess, template, side, level, n % 4 >= 2);
       if (!p || (seen && seen.has(p.fen)) || (scheduler && !scheduler.allows(p))) continue;
       if (seen) seen.add(p.fen);
       return p;
@@ -436,11 +440,13 @@ function curatedMateOne(Chess, rng, seen, level) {
   return null;
 }
 
+/* These are deliberately one-to-one mappings.  A motif is a distinct mating
+ * geometry, never a new label placed on a shared scaffold. */
 const MATE_VARIANTS = [
-  ['back-rank', 'backRank'], ['rook-corridor', 'backRank'],
-  ['queen-and-king', 'cornerBox'], ['knight-mate', 'knightCage'],
-  ['bishop-diagonal', 'diagonal'], ['queen-battery', 'diagonal'],
-  ['supported-rook', 'backRank'], ['blocked-king', 'knightCage']
+  ['back-rank', 'backRank'],          // heavy piece cuts the blocked back rank
+  ['queen-touch-support', 'cornerBox'], // queen beside king, protected by king
+  ['smothered-knight', 'knightCage'], // knight delivers to a king boxed by own men
+  ['bishop-battery', 'diagonal']      // long diagonal support closes the sole flight square
 ];
 const MATE_LEVELS = {
   1: { variants: MATE_VARIANTS, minMates: 1, maxMates: 3, decoys: [0, 1], lure: false },
