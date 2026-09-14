@@ -18,7 +18,7 @@
  * Request handling is same-origin only (CDN fallbacks are left to the network).
  */
 
-var VERSION = '1.0.0';
+var VERSION = '1.1.0';
 var CACHE = 'chessclub-v' + VERSION;
 
 var PRECACHE = [

@@ -79,6 +79,7 @@ mode: 'computer',          // 'computer' | 'human' | 'practice'
   misses: 0,                 // wrong tries on the current puzzle
   puzzleTimer: null,         // timeout that advances to the next puzzle
   practiceHintStep: 0,
+  puzzleAttempted: false,
   solveStreak: 0,            // puzzles solved in a row (session-only)
   drillLevel: 1,             // 1 easy · 2 hard · 3 expert, auto-scaled by streak
 
@@ -199,6 +200,10 @@ function cacheDom() {
   dom.btnUndo = $('#btn-undo');
   dom.btnHint = $('#btn-hint');
   dom.btnNextPuzzle = $('#btn-next-puzzle');
+  dom.practiceProgress = $('#practice-progress');
+  dom.practiceProgressTitle = $('#practice-progress-title');
+  dom.practiceProgressText = $('#practice-progress-text');
+  dom.btnResetPractice = $('#btn-reset-practice');
   dom.btnFlip = $('#btn-flip');
   dom.btnResign = $('#btn-resign');
   dom.statusLight = $('#status-light');
@@ -626,6 +631,16 @@ function renderAll() {
   renderStatus();
   renderPuzzlePrompt();
   updateControls();
+}
+
+function renderPracticeProgress() {
+  if (!dom.practiceProgress) return;
+  const active = state.mode === 'practice';
+  dom.practiceProgress.hidden = !active;
+  if (!active) return;
+  const p = drillProgress();
+  dom.practiceProgressTitle.textContent = `${DRILL_LABELS[state.drill]} — `;
+  dom.practiceProgressText.textContent = `${LEVEL_NAMES[state.drillLevel]} · Streak ${p.currentStreak} · ${p.solved} solved · ${p.solvedWithoutHint} without hints · Best ${p.bestStreak}`;
 }
 
 /* ========================================================================== */
@@ -1281,6 +1296,7 @@ state.busy = false;
   dom.moveCount.textContent = '0';
   showBanner('');
   renderPuzzlePrompt();
+  renderPracticeProgress();
 
   if (state.mode === 'practice') {
     newPuzzle();
@@ -1315,6 +1331,35 @@ const puzzleScheduler = new PuzzleScheduler();
 
 const LEVEL_NAMES = { 1: 'easy', 2: 'hard', 3: 'expert' };
 
+/* Versioned, device-local Practice progress.  It deliberately contains no
+ * identity or game history, and storage failures simply leave Practice usable. */
+const PRACTICE_STORAGE_KEY = 'chessclub.practice.v1';
+function emptyPracticeDrill() {
+  return { attempted: 0, solved: 0, solvedWithoutHint: 0, currentStreak: 0, bestStreak: 0, currentLevel: 1 };
+}
+function emptyPracticeProgress() {
+  return { drills: { 'free-piece': emptyPracticeDrill(), 'mate-one': emptyPracticeDrill() } };
+}
+function loadPracticeProgress() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PRACTICE_STORAGE_KEY));
+    if (!stored || typeof stored !== 'object' || !stored.drills) return emptyPracticeProgress();
+    for (const id of DRILL_IDS) {
+      const value = stored.drills[id];
+      if (!value || typeof value !== 'object') stored.drills[id] = emptyPracticeDrill();
+      else stored.drills[id] = { ...emptyPracticeDrill(), ...value };
+    }
+    return stored;
+  } catch {
+    return emptyPracticeProgress();
+  }
+}
+function savePracticeProgress(progress) {
+  try { localStorage.setItem(PRACTICE_STORAGE_KEY, JSON.stringify(progress)); } catch { /* storage is optional */ }
+}
+const practiceProgress = loadPracticeProgress();
+function drillProgress(id = state.drill) { return practiceProgress.drills[id]; }
+
 /** Move the solve streak and, when it crosses a level threshold, level up the
  *  puzzle difficulty and announce it. Streak is session-only on purpose. */
 function bumpStreak(delta) {
@@ -1342,6 +1387,7 @@ function newPuzzle() {
   state.history = [];
   state.solved = false;
   state.misses = 0;
+  state.puzzleAttempted = false;
   clearTimeout(state.puzzleTimer);
   cacheEval(null, 0);
   state.busy = false;
@@ -1350,6 +1396,7 @@ function newPuzzle() {
 
   showBanner('');
   renderPuzzlePrompt();
+  renderPracticeProgress();
   addBubble({ tier: 'info', title: DRILL_LABELS[state.drill], text: p.goal });
   renderAll();
   updateEngineDifficulty();
@@ -1358,9 +1405,18 @@ function newPuzzle() {
 function judgePuzzleMove(move, fenBefore) {
   const p = state.puzzle;
   if (!p) return;
+  const progress = drillProgress();
+  if (!state.puzzleAttempted) { progress.attempted++; state.puzzleAttempted = true; savePracticeProgress(practiceProgress); }
 
   if (isSolved(state.Chess, p, fenBefore, state.chess, move)) {
     bumpStreak(1);
+    progress.solved++;
+    if (state.practiceHintStep === 0) progress.solvedWithoutHint++;
+    progress.currentStreak++;
+    progress.bestStreak = Math.max(progress.bestStreak, progress.currentStreak);
+    progress.currentLevel = state.drillLevel;
+    savePracticeProgress(practiceProgress);
+    renderPracticeProgress();
     state.solved = true;
     sfx.win();
     showBanner('Solved!', 'good');
@@ -1400,6 +1456,11 @@ function revealPuzzleSolution() {
   const p = state.puzzle;
   if (!p || state.solved) return;
   bumpStreak(0);   // solve streak does not survive giving up
+  const progress = drillProgress();
+  progress.currentStreak = 0;
+  progress.currentLevel = state.drillLevel;
+  savePracticeProgress(practiceProgress);
+  renderPracticeProgress();
   try {
     const t = p.target;
     const m = state.chess.move({ from: t.from, to: t.to, promotion: 'q' });
@@ -1784,6 +1845,12 @@ async function boot() {
   dom.btnUndo.addEventListener('click', undo);
   dom.btnHint.addEventListener('click', hint);
   dom.btnNextPuzzle.addEventListener('click', newPuzzle);
+  dom.btnResetPractice.addEventListener('click', () => {
+    if (!confirm('Reset Practice progress for both drills?')) return;
+    practiceProgress.drills = { 'free-piece': emptyPracticeDrill(), 'mate-one': emptyPracticeDrill() };
+    savePracticeProgress(practiceProgress);
+    renderPracticeProgress();
+  });
   dom.btnFlip.addEventListener('click', flip);
   dom.btnResign.addEventListener('click', resign);
   $('#promo-cancel').addEventListener('click', closePromotionDialog);

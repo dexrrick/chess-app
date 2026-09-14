@@ -77,6 +77,10 @@
     <!-- Practice drill prompt (hidden except in Practice mode) -->
     <p id="puzzle-prompt" class="puzzle-prompt" hidden></p>
     <button type="button" id="btn-next-puzzle" class="btn btn-primary" hidden>Next Puzzle</button>
+    <section id="practice-progress" class="puzzle-prompt" hidden aria-live="polite">
+      <strong id="practice-progress-title"></strong><span id="practice-progress-text"></span>
+      <button type="button" id="btn-reset-practice" class="btn">Reset progress</button>
+    </section>
 
     <!-- Primary actions -->
     <div class="action-row" role="group" aria-label="Game actions">
