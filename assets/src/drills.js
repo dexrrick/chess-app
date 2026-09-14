@@ -95,10 +95,23 @@ export function isSquareDefended(Chess, fen, sq) {
   }
 }
 
+/** A capture is only a clean win when the piece that lands on its destination
+ * cannot be legally captured immediately.  Looking for attacks in the source
+ * position is wrong: chess.js quite correctly omits moves onto a friendly
+ * occupied square.  Apply the capture first, then inspect legal recaptures. */
+export function hasImmediateRecapture(Chess, chess, move) {
+  try {
+    const after = new Chess(chess.fen());
+    const played = after.move({ from: move.from, to: move.to, promotion: move.promotion || 'q' });
+    return !!played && after.moves({ verbose: true }).some((reply) => reply.captured && reply.to === played.to);
+  } catch {
+    return true; // malformed candidates must never be advertised as free
+  }
+}
+
 /** All the captures the side to move can make right now and win for free
  * (destination square not defended by the enemy). Sorted best first. */
 export function findHangingCaptures(Chess, chess) {
-  const fen = chess.fen();
   const picks = [];
   for (const m of chess.moves({ verbose: true })) {
     if (!m.captured) continue;
@@ -106,7 +119,7 @@ export function findHangingCaptures(Chess, chess) {
     picks.push({ from: m.from, to: m.to, san: m.san, captured: m.captured, value });
   }
   return picks
-    .filter((p) => !isSquareDefended(Chess, fen, p.to))
+    .filter((p) => !hasImmediateRecapture(Chess, chess, p))
     .sort((a, b) => b.value - a.value || a.san.localeCompare(b.san));
 }
 
@@ -179,8 +192,7 @@ export function freePiecePuzzle(Chess, { rng = Math.random, seen, level = 1, sch
 /** A few guaranteed positions if the random generator somehow finds nothing. */
 export const FREE_PIECE_FALLBACK = [
   '6k1/5ppp/r7/1P6/8/8/8/6K1 w - - 0 1',                 // bxa6 wins a rook
-  '6k1/5ppp/8/8/6n1/7P/8/6K1 w - - 0 1',                 // hxg4 wins a knight
-  'r1bqkbnr/pp1ppppp/3N4/8/8/8/8/4K3 w kq - 0 1'         // Nxc8 wins a bishop
+  '6k1/5ppp/8/8/6n1/7P/8/6K1 w - - 0 1'                  // hxg4 wins a knight
 ];
 
 export function fallbackFreePiece(Chess, { rng = Math.random, level = 1 } = {}) {
@@ -474,7 +486,9 @@ export function makePuzzle(Chess, drillId, opts) {
 /** Judge a move that was just played on the puzzle: did it solve it? */
 export function isSolved(Chess, puzzle, fenBefore, chess, move) {
   if (puzzle.drill === 'mate-one') return chess.isCheckmate();
-  if (!move.captured || isSquareDefended(Chess, fenBefore, move.to)) return false;
+  if (!move.captured) return false;
+  const before = new Chess(fenBefore);
+  if (hasImmediateRecapture(Chess, before, move)) return false;
   if (puzzle.needBest && PIECE_VALUES[move.captured] < puzzle.bestValue) return false;
   return true;
 }

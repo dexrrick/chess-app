@@ -20,6 +20,7 @@ import {
   makePuzzle,
   isSolved,
   isSquareDefended,
+  hasImmediateRecapture,
   sanForMove,
   levelForStreak,
   PuzzleScheduler
@@ -29,6 +30,18 @@ let failures = 0;
 function check(name, ok, detail = '') {
   if (!ok) failures++;
   console.log(`[${ok ? 'PASS' : 'FAIL'}] ${name}${detail ? '  -> ' + detail : ''}`);
+}
+
+/* ---- 3b. strict free-piece validation uses legal recaptures, not attacks ---- */
+{
+  // Black's Nh2xf1 takes the bishop, but White's Qe1xf1 is a legal immediate
+  // recapture.  The old flipped-turn probe incorrectly called f1 undefended.
+  const c = new Chess('6k1/8/8/8/8/8/7n/4QBK1 b - - 0 1');
+  const candidate = c.moves({ verbose: true }).find((m) => m.from === 'h2' && m.to === 'f1');
+  check('a defended bishop capture has an immediate legal recapture',
+    !!candidate && hasImmediateRecapture(Chess, c, candidate));
+  check('a defended bishop capture is excluded from free-piece candidates',
+    !findHangingCaptures(Chess, c).some((p) => p.from === 'h2' && p.to === 'f1'));
 }
 
 /** Deterministic PRNG so generation tests are reproducible. */
