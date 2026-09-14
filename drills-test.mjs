@@ -20,7 +20,8 @@ import {
   makePuzzle,
   isSolved,
   isSquareDefended,
-  sanForMove
+  sanForMove,
+  levelForStreak
 } from './assets/src/drills.js';
 
 let failures = 0;
@@ -50,6 +51,17 @@ function matingMoves(c) {
     c.undo();
   }
   return mates;
+}
+
+/** Does any move give check without mating (a tempting lure answer)? */
+function hasLure(c) {
+  for (const m of c.moves({ verbose: true })) {
+    c.move(m);
+    const lure = c.inCheck() && !c.isCheckmate();
+    c.undo();
+    if (lure) return true;
+  }
+  return false;
 }
 
 /* ---- 1. drill catalogue is coherent ---- */
@@ -161,13 +173,14 @@ function matingMoves(c) {
   }
 }
 
-/* ---- 11. the mate-one generator composes unique, legal, varied mates ---- */
+/* ---- 11. the mate-one generator composes unique, legal, varied mates (L2) ----
+   Level 2 demands EXACTLY ONE mate — the strongest generator contract we ship. */
 {
   const seen = new Set();
   const fens = new Set();
   let got = 0;
   for (let i = 0; i < 40; i++) {
-    const p = mateOnePuzzle(Chess, { rng: lcg(1000 + i), seen });
+    const p = mateOnePuzzle(Chess, { rng: lcg(1000 + i), seen, level: 2 });
     if (!p) continue;
     got++;
     fens.add(p.fen);
@@ -211,6 +224,72 @@ function matingMoves(c) {
   const p = makePuzzle(Chess, 'free-piece', { rng: lcg(5) });
   const san = sanForMove(Chess, p.fen, p.target);
   check('sanForMove names the winning move', !!san && san.length >= 3, san || 'null');
+}
+
+/* ---- 12. auto-scaling levels ---- */
+{
+  const streakLevels = [1, 1, 1, 1, 2, 2, 2, 3, 3, 3].map((_, i) => levelForStreak(i));
+  check('levelForStreak: 1 until streak 3, 2 until streak 6, 3 from streak 7',
+    JSON.stringify(streakLevels) === '[1,1,1,2,2,2,2,3,3,3]', streakLevels.join(','));
+  check('levelForStreak clamps negatives', levelForStreak(-5) === 1);
+
+  // Level 1 accepts 1..3 mating moves (any mate wins); L2/L3 are unique.
+  let l1Seen = 0;
+  let l1Multi = 0;
+  for (let i = 0; i < 40; i++) {
+    const p = mateOnePuzzle(Chess, { rng: lcg(500 + i), level: 1 });
+    if (!p) continue;
+    l1Seen++;
+    const mates = matingMoves(new Chess(p.fen));
+    check(`L1 #${i} allows 1..3 mating moves`, mates.length >= 1 && mates.length <= 3, mates.join(','));
+    if (mates.length > 1) l1Multi++;
+  }
+  check('L1 generated puzzles across seeds', l1Seen >= 20, `got=${l1Seen}`);
+  check('L1 produced some multi-mate (friendlier) puzzles', l1Multi >= 1, `multi=${l1Multi}`);
+
+  for (const level of [2, 3]) {
+    for (let i = 0; i < 14; i++) {
+      const p = mateOnePuzzle(Chess, { rng: lcg(600 + level * 100 + i), level });
+      if (!p) continue;
+      check(`L${level} #${i} has exactly one mating move`, matingMoves(new Chess(p.fen)).length === 1, p.fen);
+    }
+  }
+
+  // Expert tier also hides lure checks (checks that are NOT mate) to train the eye.
+  let lures = 0;
+  for (let i = 0; i < 24; i++) {
+    const p = mateOnePuzzle(Chess, { rng: lcg(900 + i), level: 3 });
+    if (!p) continue;
+    if (hasLure(new Chess(p.fen))) lures++;
+  }
+  check('L3 puzzles tend to screen lure checks', lures >= 12, `lures=${lures}`);
+
+  // Free-piece: easy need not grab the best, harder tiers insist on it.
+  const easy = freePiecePuzzle(Chess, { rng: lcg(7), level: 1 });
+  check('L1 free-piece does not demand the best grab', easy.needBest === false, `needBest=${easy.needBest}`);
+  const hard = makePuzzle(Chess, 'free-piece', { rng: lcg(8), level: 3 }) ||
+    fallbackFreePiece(Chess, { rng: lcg(8), level: 3 });
+  check('L3 free-piece demands the best grab', hard.needBest === true && hard.level === 3,
+    `needBest=${hard.needBest} level=${hard.level}`);
+  const mid = makePuzzle(Chess, 'free-piece', { rng: lcg(12), level: 2 });
+  check('L2 free-piece demands the best grab too', mid.needBest === true);
+  check('L2 tracks the best-grab value', typeof mid.bestValue === 'number' && mid.bestValue >= 4, `bestValue=${mid.bestValue}`);
+
+  // The needBest judge on a synthetic position with a hanging rook AND pawn:
+  // black rook d2 (Rxd2, value 5) and black pawn a6 (bxa6, value 1), neither
+  // defended by Black so both grabs are "legal damage" — the judge must prefer 5.
+  const fen = '6k1/8/p7/1P6/8/8/3r4/3R2K1 w - - 0 1';
+  const picks = findHangingCaptures(Chess, new Chess(fen));
+  const pz = { drill: 'free-piece', needBest: true, bestValue: 5, solutions: picks };
+  check('synthetic hanging position offers a rook and a pawn to grab',
+    picks.length >= 2 && picks[0].value === 5, picks.map((q) => q.value).join(','));
+  const cr = new Chess(fen);
+  check('needBest accepts taking the rook', isSolved(Chess, pz, cr.fen(), cr, cr.move('Rxd2')));
+  const cp = new Chess(fen);
+  check('needBest rejects grabbing only the pawn', !isSolved(Chess, pz, cp.fen(), cp, cp.move('bxa6')));
+  const bare = { drill: 'free-piece', needBest: false, bestValue: 5, solutions: picks };
+  const cq = new Chess(fen);
+  check('without needBest the pawn grab is fine', isSolved(Chess, bare, cq.fen(), cq, cq.move('bxa6')));
 }
 
 console.log('\n========================================');

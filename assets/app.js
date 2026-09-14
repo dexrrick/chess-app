@@ -12,7 +12,7 @@
 import { pieceSvg, PIECE_NAMES, PIECE_VALUES } from './src/pieces.js';
 import { Engine, DIFFICULTIES, sleep } from './src/engine.js';
 import { classify, describeMove, describeHint, openingTip, evalText, phaseOf } from './src/coach.js';
-import { DRILL_IDS, DRILL_LABELS, makePuzzle, isSolved } from './src/drills.js';
+import { DRILL_IDS, DRILL_LABELS, makePuzzle, isSolved, levelForStreak } from './src/drills.js';
 
 /* ========================================================================== */
 /*  Load chess.js                                                             */
@@ -78,6 +78,8 @@ mode: 'computer',          // 'computer' | 'human' | 'practice'
   solved: false,             // current puzzle won (board frozen until next)
   misses: 0,                 // wrong tries on the current puzzle
   puzzleTimer: null,         // timeout that advances to the next puzzle
+  solveStreak: 0,            // puzzles solved in a row (session-only)
+  drillLevel: 1,             // 1 easy · 2 hard · 3 expert, auto-scaled by streak
 
   selected: null,            // square name of the currently selected piece
   legalTargets: [],          // [{to, capture}]
@@ -601,10 +603,15 @@ function renderPuzzlePrompt() {
     return;
   }
   el.hidden = false;
+  const p = state.puzzle;
   if (state.solved) {
     el.textContent = 'Solved! Next puzzle is on its way…';
+  } else if (p) {
+    const head = p.level ? `Level ${p.level} · ` : '';
+    const tail = state.solveStreak >= 3 ? ` · Streak ${state.solveStreak}` : '';
+    el.textContent = `${head}${p.caption}${tail}`;
   } else {
-    el.textContent = state.puzzle ? state.puzzle.caption : 'Preparing a puzzle…';
+    el.textContent = 'Preparing a puzzle…';
   }
 }
 
@@ -1300,8 +1307,23 @@ const PRAISE = {
 
 const puzzleSeen = new Set();   // FENs already shown this session, so drills stay varied
 
+const LEVEL_NAMES = { 1: 'easy', 2: 'hard', 3: 'expert' };
+
+/** Move the solve streak and, when it crosses a level threshold, level up the
+ *  puzzle difficulty and announce it. Streak is session-only on purpose. */
+function bumpStreak(delta) {
+  state.solveStreak = delta === 0 ? 0 : Math.max(0, state.solveStreak + delta);
+  const level = levelForStreak(state.solveStreak);
+  if (level !== state.drillLevel) {
+    state.drillLevel = level;
+    if (delta > 0) {
+      addBubble({ tier: 'success', title: 'Level up!', text: `You are on a roll — puzzles are now **${LEVEL_NAMES[level]}**!` });
+    }
+  }
+}
+
 function newPuzzle() {
-  state.puzzle = makePuzzle(state.Chess, state.drill, { seen: puzzleSeen });
+  state.puzzle = makePuzzle(state.Chess, state.drill, { seen: puzzleSeen, level: state.drillLevel });
   const p = state.puzzle;
   if (!p) return;
 
@@ -1331,6 +1353,7 @@ function judgePuzzleMove(move, fenBefore) {
   if (!p) return;
 
   if (isSolved(state.Chess, p, fenBefore, state.chess, move)) {
+    bumpStreak(1);
     state.solved = true;
     sfx.win();
     showBanner('Solved!', 'good');
@@ -1369,6 +1392,7 @@ function judgePuzzleMove(move, fenBefore) {
 function revealPuzzleSolution() {
   const p = state.puzzle;
   if (!p || state.solved) return;
+  bumpStreak(0);   // solve streak does not survive giving up
   try {
     const t = p.target;
     const m = state.chess.move({ from: t.from, to: t.to, promotion: 'q' });

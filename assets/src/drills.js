@@ -1,17 +1,20 @@
 /**
  * drills.js — the Practice mode mini-games.
  *
- * Two drills, both kid-first:
+ * Two drills, both kid-first, and both auto-scale across three levels
+ * (1 = easy, 2 = hard, 3 = expert) chosen from the solve streak:
  *
  *   free-piece  — "grab the piece that is all alone": a random walk from the
  *                 start position produces a position where White can capture
  *                 an undefended enemy piece. Pure chess.js, no engine.
+ *                 Higher levels demand pricier grabs and best-piece accuracy.
  *
  *   mate-one    — "checkmate in one move": positions composed procedurally
- *                 from classic back-rank traps and rooted heavy-piece mates.
- *                 Every candidate is re-verified live with chess.js to have
- *                 EXACTLY ONE mating move, so judging needs no engine either
- *                 (a move that leaves Black checkmated is the winning move).
+ *                 from several classic mating families (back-rank slides,
+ *                 corner queen boxes, knight-in-the-cage, diagonal shutters).
+ *                 Every candidate is re-verified live with chess.js: easier
+ *                 levels accept any mating move, harder ones demand EXACTLY
+ *                 ONE mate (and lure checks to see through). No engine needed.
  *                 The hand-curated pool below is only a safety-net fallback.
  *
  * Everything here takes a `Chess` constructor as an argument so the module has
@@ -30,6 +33,13 @@ export const DRILL_LABELS = {
 
 /** Take the other side. */
 const other = (c) => (c === 'w' ? 'b' : 'w');
+
+/** Auto-scaling level picker: streak 3 -> level 2, streak 7 -> level 3. */
+export function levelForStreak(streak) {
+  if (streak >= 7) return 3;
+  if (streak >= 3) return 2;
+  return 1;
+}
 
 /** The flip side of a FEN has the other side to move; castling rights and
  * en-passant squares belong to the side that actually moved, so blank them. */
@@ -76,15 +86,24 @@ function describeFreePiece(captured, to, color) {
   };
 }
 
+/** Free-piece difficulty knobs. Pricier targets and best-piece precision scale up. */
+const FREE_LEVELS = {
+  1: { value: 3, needBest: false, plies: [4, 8], maxGames: 60 },
+  2: { value: 4, needBest: true, plies: [4, 10], maxGames: 60 },
+  3: { value: 4, needBest: true, plies: [5, 11], maxGames: 90, shopForTwo: true }
+};
+
 /**
  * Play a few random legal moves and keep the first position in which White can
  * take an undefended enemy piece worth grabbing. `seen` (a Set of FENs) keeps a
- * session from repeating a puzzle.
+ * session from repeating a puzzle; `level` scales the target value, the clutter
+ * (deeper plies) and whether the best grab is required.
  */
-export function freePiecePuzzle(Chess, { rng = Math.random, maxGames = 60, seen } = {}) {
-  for (let g = 0; g < maxGames; g++) {
+export function freePiecePuzzle(Chess, { rng = Math.random, maxGames, seen, level = 1 } = {}) {
+  const cfg = FREE_LEVELS[level] || FREE_LEVELS[1];
+  for (let g = 0; g < (maxGames || cfg.maxGames); g++) {
     const c = new Chess();
-    const plies = 4 + Math.floor(rng() * 9);   // 4..12 half-moves in
+    const plies = cfg.plies[0] + Math.floor(rng() * (cfg.plies[1] - cfg.plies[0] + 1));
     for (let p = 0; p < plies; p++) {
       const moves = c.moves({ verbose: true });
       if (!moves.length) break;
@@ -94,12 +113,23 @@ export function freePiecePuzzle(Chess, { rng = Math.random, maxGames = 60, seen 
 
     const picks = findHangingCaptures(Chess, c);
     const best = picks[0];
-    if (!best || best.value < 3) continue;   // a pawn with no value grab is not a fun puzzle
+    if (!best || best.value < cfg.value) continue;      // too small a bone
+    if (cfg.shopForTwo && picks.length < 2) continue;   // expert really must choose
 
     const fen = c.fen();
     if (seen && seen.has(fen)) continue;
     if (seen) seen.add(fen);
-    return { drill: 'free-piece', fen, solutions: picks, target: { from: best.from, to: best.to }, targetSan: best.san, ...describeFreePiece(best.captured, best.to, other(c.turn())) };
+    return {
+      drill: 'free-piece',
+      fen,
+      level,
+      needBest: cfg.needBest,
+      bestValue: best.value,
+      solutions: picks,
+      target: { from: best.from, to: best.to },
+      targetSan: best.san,
+      ...describeFreePiece(best.captured, best.to, other(c.turn()))
+    };
   }
   return null;
 }
@@ -111,12 +141,23 @@ export const FREE_PIECE_FALLBACK = [
   'r1bqkbnr/pp1ppppp/3N4/8/8/8/8/4K3 w kq - 0 1'         // Nxc8 wins a bishop
 ];
 
-export function fallbackFreePiece(Chess, { rng = Math.random } = {}) {
+export function fallbackFreePiece(Chess, { rng = Math.random, level = 1 } = {}) {
+  const cfg = FREE_LEVELS[level] || FREE_LEVELS[1];
   const fen = FREE_PIECE_FALLBACK[Math.floor(rng() * FREE_PIECE_FALLBACK.length)];
   const chess = new Chess(fen);
   const picks = findHangingCaptures(Chess, chess);
   const best = picks[0];
-  return { drill: 'free-piece', fen, solutions: picks, target: { from: best.from, to: best.to }, targetSan: best.san, ...describeFreePiece(best.captured, best.to, other(chess.turn())) };
+  return {
+    drill: 'free-piece',
+    fen,
+    level,
+    needBest: cfg.needBest,
+    bestValue: best.value,
+    solutions: picks,
+    target: { from: best.from, to: best.to },
+    targetSan: best.san,
+    ...describeFreePiece(best.captured, best.to, other(chess.turn()))
+  };
 }
 
 /** Mate-in-one positions, all White to move. Every entry is re-verified in
@@ -154,55 +195,132 @@ function fenOf(board) {
   return `${out} w - - 0 1`;
 }
 
-/**
- * Compose a near-mate base: a black king pinned to the 8th rank by its own
- * pawn wall, and a rook/queen parked on the far edge file whose single slide
- * to the 8th rank delivers mate. White's king just keeps him off the lane.
- */
-function makeMateBoard(rng) {
+/* ---- Mating families. Each composes a near-mate base and returns
+   {board, lane}, where `lane` is the file the mating piece slides along and so
+   must be kept clear of decoys (null = no lane). The chess.js verifier turns
+   the scaffolds into guaranteed positions. ---- */
+
+/** Back-rank slide: black king folded against the 8th rank by a pawn wall, a
+ *  rook/queen parked on the far edge file slides to the rank to mate. */
+const scaffoldBackRank = (rng) => {
   const board = {};
-  const corner = rng() < 0.6;                           // tucked in a8/h8 vs c8..g8
+  const corner = rng() < 0.6;                          // tucked in a8/h8 vs c8..g8
   const heavy = rng() < 0.5 ? 'Q' : 'R';
   const kf = corner ? (rng() < 0.5 ? 0 : 7) : 2 + Math.floor(rng() * 5);
   board[sqName(kf, 7)] = 'k';
   for (let f = Math.max(0, kf - 1); f <= Math.min(7, kf + 1); f++) {
-    board[sqName(f, 6)] = 'p';                          // pawn wall on rank 7
+    board[sqName(f, 6)] = 'p';                         // pawn wall on rank 7
   }
-  const heavyFile = rng() < 0.5 ? 0 : 7;                // far edge file
-  const minHr = corner && heavy === 'Q' ? 1 : 0;        // corner queens can't sit on the checking diagonal
-  board[sqName(heavyFile, minHr + Math.floor(rng() * (6 - minHr)))] = heavy;
-  const wkf = heavyFile === 0 ? 1 + Math.floor(rng() * 7) : Math.floor(rng() * 7);
-  board[sqName(wkf, 0)] = 'K';                          // White king on his back rank
-  return { board, heavyFile };
-}
+  const lane = rng() < 0.5 ? 0 : 7;                    // far edge file
+  const minHr = corner && heavy === 'Q' ? 1 : 0;       // corner queens can't sit on the checking diagonal
+  board[sqName(lane, minHr + Math.floor(rng() * (6 - minHr)))] = heavy;
+  const wkf = lane === 0 ? 1 + Math.floor(rng() * 7) : Math.floor(rng() * 7);
+  board[sqName(wkf, 0)] = 'K';                         // White king on his back rank
+  return { board, lane };
+};
 
-/**
- * Verify a composed board is a quiet (no side in check, White to move) legal
- * position in which EXACTLY ONE White move checkmates. Returns {fen, mate}.
- */
-function inspectMateOne(Chess, board) {
+/** Corner queen box: bare king stuck in a8/h8, the queen slides to the square
+ *  b7/g7 (defended from c6/f6) to mate. Queen + king cooperation is far less
+ *  obvious than a straight heavy-piece slide. */
+const scaffoldCornerBox = (rng) => {
+  const board = {};
+  const right = rng() < 0.5;                           // king h8 vs a8
+  const kf = right ? 7 : 0;
+  board[sqName(kf, 7)] = 'k';
+  const lane = right ? 6 : 1;                          // the queen mates b7/g7
+  board[sqName(right ? 5 : 2, 5)] = 'K';               // c6/f6 shelters her (never adjacent to the king)
+  board[sqName(lane, 1 + Math.floor(rng() * 4))] = 'Q';  // starts on her own file, ranks 2..5
+  return { board, lane };
+};
+
+/** Knight in the cage: the king is jailed in the corner by its own rook and
+ *  pawns, and a lone knight lands on the killing square (f7 / c7). */
+const KNIGHT_CAGE_MATE = {
+  7: ['d6', 'd8', 'e5', 'g5', 'h6'],   // all reach the killing square f7
+  0: ['a6', 'b5', 'd5', 'e6', 'e8']    // all reach c7
+};
+const scaffoldKnightCage = (rng) => {
+  const board = {};
+  const right = rng() < 0.5;
+  const kf = right ? 7 : 0;
+  board[sqName(kf, 7)] = 'k';
+  const side = right ? kf - 1 : kf + 1;                // g8 / b8 cage blocker
+  board[sqName(side, 7)] = 'r';
+  board[sqName(side, 6)] = 'p';
+  board[sqName(kf, 6)] = 'p';
+  const starts = KNIGHT_CAGE_MATE[kf];
+  board[starts[Math.floor(rng() * starts.length)]] = 'N';
+  board[sqName(right ? 0 : 7, 0)] = 'K';               // white king away in the far corner
+  return { board, lane: null };
+};
+
+/** Diagonal shutter: a two-pawn wall leaves one escape square open, which a
+ *  far-away bishop covers along a long diagonal while the heavy piece mates on
+ *  the rank. The solver must notice a hidden diagonal, not just the obvious
+ *  slide. */
+const scaffoldDiagonalShutter = (rng) => {
+  const board = {};
+  const heavy = rng() < 0.5 ? 'Q' : 'R';
+  const kf = 2 + Math.floor(rng() * 5);                // c8..g8
+  const openRight = kf < 6 && rng() < 0.5 ? false : kf > 2 && rng() < 0.5 ? true : kf >= 6 ? false : true;
+  const openF = openRight ? kf + 1 : kf - 1;
+  board[sqName(kf, 7)] = 'k';
+  if (openRight) {
+    board[sqName(kf - 1, 6)] = 'p';
+    board[sqName(kf, 6)] = 'p';
+  } else {
+    board[sqName(kf, 6)] = 'p';
+    board[sqName(kf + 1, 6)] = 'p';
+  }
+  const lane = openRight ? 0 : 7;                      // heavy mates from the far corner
+  board[sqName(lane, Math.floor(rng() * 6))] = heavy;
+  const dir = openRight ? -1 : 1;                      // walk down the shutter diagonal
+  const shutter = [];
+  for (let f = openF + dir, r = 5; f >= 0 && f <= 7 && r >= 0; f += dir, r--) {
+    shutter.push(sqName(f, r));
+  }
+  board[shutter[Math.floor(rng() * shutter.length)]] = 'B';
+  board[sqName(openRight ? 7 : 0, 0)] = 'K';           // white king far away
+  return { board, lane };
+};
+
+const MATE_FAMILIES = {
+  backRank: scaffoldBackRank,
+  cornerBox: scaffoldCornerBox,
+  knightCage: scaffoldKnightCage,
+  diagonal: scaffoldDiagonalShutter
+};
+
+/** Verify a composed board is a quiet (no side in check, White to move) legal
+ *  position whose mating moves fall inside [minMates, maxMates], with optional
+ *  "lure" checks (moves that give check but do NOT mate — a tempting wrong
+ *  answer on the expert tier). Returns {fen, mates}. */
+function inspectMateOne(Chess, board, { minMates = 1, maxMates = 1, wantLure = false } = {}) {
   const fen = fenOf(board);
   let c;
   try { c = new Chess(fen); } catch { return null; }
   if (c.turn() !== 'w' || c.inCheck() || c.isCheckmate() || c.isStalemate()) return null;
   if (new Chess(flippedTurnFen(fen)).inCheck()) return null;   // Black already in check
   const mates = [];
+  let lureChecks = 0;
   for (const m of c.moves({ verbose: true })) {
     c.move(m);
     if (c.isCheckmate()) mates.push({ from: m.from, to: m.to, san: m.san });
+    else if (c.inCheck()) lureChecks++;
     c.undo();
   }
-  if (mates.length !== 1) return null;
-  return { fen, mate: mates[0] };
+  if (mates.length < minMates || mates.length > maxMates) return null;
+  if (wantLure && lureChecks < 1) return null;
+  return { fen, mates };
 }
 
 const MATE_DECOYS = ['p', 'p', 'p', 'N', 'N', 'N', 'B', 'B', 'R'];
 
-function pickDecoySquare(board, rng, heavyFile) {
+function pickDecoySquare(board, rng, lane) {
   const empties = [];
   for (let f = 0; f < 8; f++) {
-    if (f === heavyFile) continue;                       // never block the mating lane
-    for (let r = 0; r < 6; r++) {                        // ranks 1..6 only
+    if (lane !== null && f === lane) continue;         // never block the mating lane
+    for (let r = 0; r < 6; r++) {                      // ranks 1..6 only
       const s = sqName(f, r);
       if (!board[s]) empties.push(s);
     }
@@ -210,13 +328,14 @@ function pickDecoySquare(board, rng, heavyFile) {
   return empties.length ? empties[Math.floor(rng() * empties.length)] : null;
 }
 
-/** Add a little noise (black pawns / White minors), keeping the unique mate. */
-function decorateMateBoard(board, heavyFile, rng, isGood) {
-  const want = rng() < 0.5 ? Math.floor(rng() * 3) : 1;
+/** Add noise (black pawns / White minors) without breaking the level's mate
+ *  contract. Every placement is re-verified and rolled back if invalid. */
+function decorateMateBoard(board, lane, rng, range, isGood) {
+  const want = range[0] + Math.floor(rng() * (range[1] - range[0] + 1));
   for (let n = 0; n < want; n++) {
     let placed = false;
     for (let t = 0; t < 15 && !placed; t++) {
-      const s = pickDecoySquare(board, rng, heavyFile);
+      const s = pickDecoySquare(board, rng, lane);
       if (!s) break;
       const piece = MATE_DECOYS[Math.floor(rng() * MATE_DECOYS.length)];
       board[s] = piece;
@@ -227,21 +346,23 @@ function decorateMateBoard(board, heavyFile, rng, isGood) {
   }
 }
 
-function puzzleFromMate(fen, mate) {
+function puzzleFromMate(fen, mates, level) {
+  const first = mates[0];
   return {
     drill: 'mate-one',
     fen,
-    solutions: [mate.san],
-    target: { from: mate.from, to: mate.to },
-    targetSan: mate.san,
+    level,
+    solutions: mates.map((m) => m.san),
+    target: { from: first.from, to: first.to },
+    targetSan: first.san,
     goal: 'Deliver checkmate in ONE move!',
     caption: 'The black king is nearly trapped — one move finishes the job.',
-    hint: `Play ${mate.san} and the king will have no safe square to run to.`
+    hint: `Play ${first.san} and the king will have no safe square to run to.`
   };
 }
 
 /** Draw from the hand-curated pool as a rare fallback (seen-aware). */
-function curatedMateOne(Chess, rng, seen) {
+function curatedMateOne(Chess, rng, seen, level) {
   const pool = MATE_ONE_PUZZLES;
   const start = Math.floor(rng() * pool.length);
   for (let k = 0; k < pool.length; k++) {
@@ -251,23 +372,33 @@ function curatedMateOne(Chess, rng, seen) {
     if (seen) seen.add(p.fen);
     _lastMateIndex = i;
     const mv = new Chess(p.fen).move(p.solution);
-    return puzzleFromMate(p.fen, { from: mv.from, to: mv.to, san: p.solution });
+    return puzzleFromMate(p.fen, [{ from: mv.from, to: mv.to, san: p.solution }], level);
   }
   return null;
 }
 
-export function mateOnePuzzle(Chess, { rng = Math.random, seen } = {}) {
-  for (let attempt = 0; attempt < 150; attempt++) {
-    const { board, heavyFile } = makeMateBoard(rng);
-    if (!inspectMateOne(Chess, board)) continue;
-    decorateMateBoard(board, heavyFile, rng, (b) => !!inspectMateOne(Chess, b));
-    const got = inspectMateOne(Chess, board);
+const MATE_LEVELS = {
+  1: { families: ['backRank'], minMates: 1, maxMates: 3, decoys: [0, 1], lure: false },
+  2: { families: ['backRank', 'cornerBox', 'knightCage'], minMates: 1, maxMates: 1, decoys: [1, 2], lure: false },
+  3: { families: ['cornerBox', 'diagonal'], minMates: 1, maxMates: 1, decoys: [2, 3], lure: true }
+};
+
+export function mateOnePuzzle(Chess, { rng = Math.random, seen, level = 1 } = {}) {
+  const cfg = MATE_LEVELS[level] || MATE_LEVELS[1];
+  const families = cfg.families.map((key) => MATE_FAMILIES[key]);
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const wantLure = cfg.lure && attempt < 60;   // prefer lure mates on expert, don't starve on them
+    const { board, lane } = families[Math.floor(rng() * families.length)](rng);
+    const good = () => inspectMateOne(Chess, board, { minMates: cfg.minMates, maxMates: cfg.maxMates, wantLure });
+    if (!good()) continue;
+    decorateMateBoard(board, lane, rng, cfg.decoys, () => !!good());
+    const got = good();
     if (!got) continue;
     if (seen && seen.has(got.fen)) continue;
     if (seen) seen.add(got.fen);
-    return puzzleFromMate(got.fen, got.mate);
+    return puzzleFromMate(got.fen, got.mates, level);
   }
-  return curatedMateOne(Chess, rng, seen);
+  return curatedMateOne(Chess, rng, seen, level);
 }
 
 /** Build a fresh puzzle for a drill id (used by app.js for each new puzzle). */
@@ -279,7 +410,9 @@ export function makePuzzle(Chess, drillId, opts) {
 /** Judge a move that was just played on the puzzle: did it solve it? */
 export function isSolved(Chess, puzzle, fenBefore, chess, move) {
   if (puzzle.drill === 'mate-one') return chess.isCheckmate();
-  return !!move.captured && !isSquareDefended(Chess, fenBefore, move.to);
+  if (!move.captured || isSquareDefended(Chess, fenBefore, move.to)) return false;
+  if (puzzle.needBest && PIECE_VALUES[move.captured] < puzzle.bestValue) return false;
+  return true;
 }
 
 /** SAN of a {from,to} move on a given FEN (used by the reveal-hint). */
