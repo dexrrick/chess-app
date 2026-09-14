@@ -1,0 +1,12 @@
+
+> chess-club@1.0.0 serve
+> node scripts/serve.mjs
+
+
+  Chess Club is running:
+
+    http://localhost:8899/
+
+  Serving: E:\Goose\chess-app\assets
+  Press Ctrl+C to stop.
+

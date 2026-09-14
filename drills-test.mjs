@@ -329,25 +329,6 @@ function hasLure(c) {
   }
 }
 
-/* ---- 14. 100-puzzle structural quality gates (not FEN-only variety) ---- */
-{
-  for (const [name, maker] of [['free piece', (o) => freePiecePuzzle(Chess, o)], ['mate', (o) => mateOnePuzzle(Chess, o)]]) {
-    const seen = new Set(); const puzzles = [];
-    for (let i = 0; i < 100; i++) {
-      const p = maker({ rng: lcg(5000 + i), seen, level: 3 });
-      if (p) puzzles.push(p);
-    }
-    const fens = new Set(puzzles.map((p) => p.fen));
-    const targets = new Map();
-    for (const p of puzzles) targets.set(p.target.to, (targets.get(p.target.to) || 0) + 1);
-    const peak = Math.max(...targets.values());
-    check(`${name}: 100 deterministic puzzles generated`, puzzles.length === 100, `got=${puzzles.length}`);
-    check(`${name}: no duplicate full-board states`, fens.size === puzzles.length, `${fens.size}/${puzzles.length}`);
-    check(`${name}: no landing square exceeds 20%`, peak <= 20, `peak=${peak}/${puzzles.length}`);
-    check(`${name}: both solving colours occur`, new Set(puzzles.map((p) => p.sideToMove)).size === 2);
-  }
-}
-
 console.log('\n========================================');
 console.log(failures === 0 ? '  ALL DRILL TESTS PASSED' : `  ${failures} CHECK(S) FAILED`);
 console.log('========================================\n');

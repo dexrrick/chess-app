@@ -49,6 +49,11 @@ export class PuzzleScheduler {
       solutionPiece: puzzle.solutionPiece, targetSquare: puzzle.target?.to });
     this.recent = this.recent.slice(-5);
   }
+  chooseMotif(motifs) {
+    const counts = new Map(motifs.map((m) => [m, this.recent.filter((p) => p.motif === m).length]));
+    const eligible = motifs.filter((m) => m !== this.recent[this.recent.length - 1]?.motif);
+    return (eligible.length ? eligible : motifs).sort((a, b) => counts.get(a) - counts.get(b) || a.localeCompare(b))[0];
+  }
 }
 
 /** Take the other side. */
@@ -280,14 +285,21 @@ const scaffoldBackRank = (rng) => {
 /** Corner queen box: bare king stuck in a8/h8, the queen slides to the square
  *  b7/g7 (defended from c6/f6) to mate. Queen + king cooperation is far less
  *  obvious than a straight heavy-piece slide. */
+let cornerBoxCursor = 0;
 const scaffoldCornerBox = (rng) => {
   const board = {};
-  const right = rng() < 0.5;                           // king h8 vs a8
+  const variant = cornerBoxCursor++ % 4;
+  const right = variant % 2 === 0;
+  const top = variant < 2;
   const kf = right ? 7 : 0;
-  board[sqName(kf, 7)] = 'k';
+  const kr = top ? 7 : 0;
+  board[sqName(kf, kr)] = 'k';
   const lane = right ? 6 : 1;                          // the queen mates b7/g7
-  board[sqName(right ? 5 : 2, 5)] = 'K';               // c6/f6 shelters her (never adjacent to the king)
-  board[sqName(lane, 1 + Math.floor(rng() * 4))] = 'Q';  // starts on her own file, ranks 2..5
+  const targetRank = top ? 6 : 1;
+  const supportRank = top ? 5 : 2;
+  board[sqName(right ? 5 : 2, supportRank)] = 'K';      // c6/f6 or c3/f3 shelters her
+  const starts = top ? [1, 2, 3, 4] : [3, 4, 5, 6];
+  board[sqName(lane, starts[Math.floor(rng() * starts.length)])] = 'Q';
   return { board, lane };
 };
 
@@ -316,11 +328,13 @@ const scaffoldKnightCage = (rng) => {
  *  far-away bishop covers along a long diagonal while the heavy piece mates on
  *  the rank. The solver must notice a hidden diagonal, not just the obvious
  *  slide. */
+let diagonalCursor = 0;
 const scaffoldDiagonalShutter = (rng) => {
   const board = {};
   const heavy = rng() < 0.5 ? 'Q' : 'R';
-  const kf = 2 + Math.floor(rng() * 5);                // c8..g8
-  const openRight = kf < 6 && rng() < 0.5 ? false : kf > 2 && rng() < 0.5 ? true : kf >= 6 ? false : true;
+  const variant = diagonalCursor++;
+  const kf = 2 + (variant % 5);                        // c8..g8
+  const openRight = kf === 2 ? true : kf === 6 ? false : Math.floor(variant / 5) % 2 === 0;
   const openF = openRight ? kf + 1 : kf - 1;
   board[sqName(kf, 7)] = 'k';
   if (openRight) {
@@ -448,6 +462,9 @@ const MATE_VARIANTS = [
   ['smothered-knight', 'knightCage'], // knight delivers to a king boxed by own men
   ['bishop-battery', 'diagonal']      // long diagonal support closes the sole flight square
 ];
+let mateMotifCursor = 0;
+export const MATE_GENERATOR_HEALTH = Object.fromEntries(MATE_VARIANTS.map(([motif]) => [motif, { attempts: 0, successes: 0, rejections: 0 }]));
+export function resetMateGeneratorHealth() { for (const value of Object.values(MATE_GENERATOR_HEALTH)) Object.assign(value, { attempts: 0, successes: 0, rejections: 0 }); }
 const MATE_LEVELS = {
   1: { variants: MATE_VARIANTS, minMates: 1, maxMates: 3, decoys: [0, 1], lure: false },
   2: { variants: MATE_VARIANTS, minMates: 1, maxMates: 1, decoys: [1, 2], lure: false },
@@ -462,22 +479,30 @@ function mateMovesForFen(Chess, fen) {
 
 export function mateOnePuzzle(Chess, { rng = Math.random, seen, level = 1, scheduler } = {}) {
   const cfg = MATE_LEVELS[level] || MATE_LEVELS[1];
-  for (let attempt = 0; attempt < 200; attempt++) {
-    const wantLure = cfg.lure && attempt < 60;   // prefer lure mates on expert, don't starve on them
-    const [motif, family] = cfg.variants[Math.floor(rng() * cfg.variants.length)];
-    const { board, lane } = MATE_FAMILIES[family](rng);
+  const motifNames = cfg.variants.map(([motif]) => motif);
+  const first = scheduler ? scheduler.chooseMotif(motifNames) : motifNames[mateMotifCursor++ % motifNames.length];
+  const ordered = [first, ...motifNames.filter((m) => m !== first)];
+  for (const motif of ordered) {
+    const family = cfg.variants.find(([name]) => name === motif)[1];
+    for (let attempt = 0; attempt < 50; attempt++) {
+      MATE_GENERATOR_HEALTH[motif].attempts++;
+      const wantLure = cfg.lure && attempt < 20;
+      const { board, lane } = MATE_FAMILIES[family](rng);
     const good = () => inspectMateOne(Chess, board, { minMates: cfg.minMates, maxMates: cfg.maxMates, wantLure });
-    if (!good()) continue;
+      if (!good()) { MATE_GENERATOR_HEALTH[motif].rejections++; continue; }
     decorateMateBoard(board, lane, rng, cfg.decoys, () => !!good());
     const got = good();
-    if (!got) continue;
+      if (!got) { MATE_GENERATOR_HEALTH[motif].rejections++; continue; }
     for (const side of attempt % 2 ? ['b', 'w'] : ['w', 'b']) {
       const fen = side === 'b' ? invertPuzzleFen(got.fen) : got.fen;
       const mates = side === 'b' ? mateMovesForFen(Chess, fen) : got.mates;
       const p = puzzleFromMate(fen, mates, level, motif);
       if ((seen && seen.has(fen)) || (scheduler && !scheduler.allows(p))) continue;
       if (seen) seen.add(fen);
+      MATE_GENERATOR_HEALTH[motif].successes++;
       return p;
+    }
+    MATE_GENERATOR_HEALTH[motif].rejections++;
     }
   }
   return curatedMateOne(Chess, rng, seen, level);
