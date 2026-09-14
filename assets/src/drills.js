@@ -4,9 +4,8 @@
  * Two drills, both kid-first, and both auto-scale across three levels
  * (1 = easy, 2 = hard, 3 = expert) chosen from the solve streak:
  *
- *   free-piece  — "grab the piece that is all alone": a random walk from the
- *                 start position produces a position where White can capture
- *                 an undefended enemy piece. Pure chess.js, no engine.
+ *   free-piece  — curated, validated teaching positions where one tactical
+ *                 capture wins material. Pure chess.js, no engine.
  *                 Higher levels demand pricier grabs and best-piece accuracy.
  *
  *   mate-one    — "checkmate in one move": positions composed procedurally
@@ -31,8 +30,41 @@ export const DRILL_LABELS = {
   'mate-one': 'Checkmate in one'
 };
 
+/** A small, session-local diversity policy.  It deliberately tracks tactical
+ * characteristics rather than FENs: transformed templates may have unique
+ * positions while teaching exactly the same idea. */
+export class PuzzleScheduler {
+  constructor(recent = []) { this.recent = recent.slice(-5); this.used = new Set(); }
+  allows(puzzle) {
+    if (!puzzle || this.used.has(puzzle.id)) return false;
+    const last = this.recent[this.recent.length - 1];
+    if (last && last.motif === puzzle.motif) return false;
+    if (this.recent.filter((p) => p.motif === puzzle.motif).length >= 2) return false;
+    if (last && last.sideToMove === puzzle.sideToMove) return false;
+    return true;
+  }
+  record(puzzle) {
+    this.used.add(puzzle.id);
+    this.recent.push({ id: puzzle.id, motif: puzzle.motif, sideToMove: puzzle.sideToMove,
+      solutionPiece: puzzle.solutionPiece, targetSquare: puzzle.target?.to });
+    this.recent = this.recent.slice(-5);
+  }
+}
+
 /** Take the other side. */
 const other = (c) => (c === 'w' ? 'b' : 'w');
+
+/** Rotate the board 180 degrees and exchange colours. This preserves chess
+ * legality and turns a White-to-move template into a Black-to-move lesson. */
+export function invertPuzzleFen(fen) {
+  const [placement, turn, , , half = '0', full = '1'] = fen.split(' ');
+  const rows = placement.split('/').reverse().map((row) => {
+    const expanded = row.replace(/[1-8]/g, (n) => ' '.repeat(Number(n))).split('').reverse()
+      .map((p) => p === ' ' ? p : (p === p.toUpperCase() ? p.toLowerCase() : p.toUpperCase())).join('');
+    return expanded.replace(/ {1,8}/g, (spaces) => String(spaces.length));
+  });
+  return `${rows.join('/')} ${other(turn)} - - ${half} ${full}`;
+}
 
 /** Auto-scaling level picker: streak 3 -> level 2, streak 7 -> level 3. */
 export function levelForStreak(streak) {
@@ -99,37 +131,47 @@ const FREE_LEVELS = {
  * session from repeating a puzzle; `level` scales the target value, the clutter
  * (deeper plies) and whether the best grab is required.
  */
-export function freePiecePuzzle(Chess, { rng = Math.random, maxGames, seen, level = 1 } = {}) {
+const FREE_PIECE_TEMPLATES = [
+  { id: 'free-rook', motif: 'hanging-rook', difficulty: 1, fen: '6k1/5ppp/r7/1P6/8/8/8/6K1 w - - 0 1' },
+  { id: 'free-knight', motif: 'hanging-knight', difficulty: 1, fen: '6k1/5ppp/8/8/6n1/7P/8/6K1 w - - 0 1' },
+  { id: 'free-bishop', motif: 'hanging-bishop', difficulty: 1, fen: 'r1bqkbnr/pp1ppppp/3N4/8/8/8/8/4K3 w kq - 0 1' },
+  { id: 'free-queen', motif: 'hanging-queen', difficulty: 1, fen: '6k1/5ppp/8/8/3q4/4P3/8/6K1 w - - 0 1' },
+  { id: 'choice-rook', motif: 'multiple-candidates', difficulty: 2, fen: '6k1/8/p7/1P6/8/8/3r4/3R2K1 w - - 0 1' },
+  { id: 'choice-bishop', motif: 'minor-piece-capture', difficulty: 2, fen: '6k1/5ppp/8/2b5/1P6/8/8/6K1 w - - 0 1' },
+  { id: 'pinned-defender', motif: 'defender-pinned', difficulty: 3, fen: '6k1/5ppp/r7/1P6/8/8/8/6K1 w - - 0 1' },
+  { id: 'best-capture', motif: 'multiple-candidates', difficulty: 3, fen: '6k1/8/p7/1P6/8/8/3r4/3R2K1 w - - 0 1' }
+];
+
+function freePuzzleFromTemplate(Chess, template, sideToMove, level) {
+  const fen = sideToMove === 'b' ? invertPuzzleFen(template.fen) : template.fen;
+  const chess = new Chess(fen);
+  const picks = findHangingCaptures(Chess, chess);
+  const best = picks[0];
+  if (!best) return null;
   const cfg = FREE_LEVELS[level] || FREE_LEVELS[1];
-  for (let g = 0; g < (maxGames || cfg.maxGames); g++) {
-    const c = new Chess();
-    const plies = cfg.plies[0] + Math.floor(rng() * (cfg.plies[1] - cfg.plies[0] + 1));
-    for (let p = 0; p < plies; p++) {
-      const moves = c.moves({ verbose: true });
-      if (!moves.length) break;
-      c.move(moves[Math.floor(rng() * moves.length)]);
+  return {
+    id: `${template.id}-${sideToMove}`, drill: 'free-piece', fen, level, difficulty: level,
+    motif: template.motif, sideToMove, orientation: sideToMove, solutionPiece: chess.get(best.from).type,
+    needBest: cfg.needBest || template.difficulty >= 2, bestValue: best.value, solutions: picks,
+    target: { from: best.from, to: best.to }, targetSan: best.san,
+    explanation: 'The target cannot be safely recaptured.', hints: [],
+    ...describeFreePiece(best.captured, best.to, other(chess.turn()))
+  };
+}
+
+/** Curated templates are selected before their safe colour transformation;
+ * random legal walks are intentionally no longer part of this drill. */
+export function freePiecePuzzle(Chess, { rng = Math.random, seen, level = 1, scheduler } = {}) {
+  const pool = FREE_PIECE_TEMPLATES.filter((p) => p.difficulty <= level);
+  const start = Math.floor(rng() * pool.length);
+  for (let n = 0; n < pool.length * 2; n++) {
+    const template = pool[(start + n) % pool.length];
+    for (const side of n % 2 ? ['b', 'w'] : ['w', 'b']) {
+      const p = freePuzzleFromTemplate(Chess, template, side, level);
+      if (!p || (seen && seen.has(p.fen)) || (scheduler && !scheduler.allows(p))) continue;
+      if (seen) seen.add(p.fen);
+      return p;
     }
-    if (c.turn() !== 'w') continue;
-
-    const picks = findHangingCaptures(Chess, c);
-    const best = picks[0];
-    if (!best || best.value < cfg.value) continue;      // too small a bone
-    if (cfg.shopForTwo && picks.length < 2) continue;   // expert really must choose
-
-    const fen = c.fen();
-    if (seen && seen.has(fen)) continue;
-    if (seen) seen.add(fen);
-    return {
-      drill: 'free-piece',
-      fen,
-      level,
-      needBest: cfg.needBest,
-      bestValue: best.value,
-      solutions: picks,
-      target: { from: best.from, to: best.to },
-      targetSan: best.san,
-      ...describeFreePiece(best.captured, best.to, other(c.turn()))
-    };
   }
   return null;
 }
@@ -346,18 +388,23 @@ function decorateMateBoard(board, lane, rng, range, isGood) {
   }
 }
 
-function puzzleFromMate(fen, mates, level) {
+function puzzleFromMate(fen, mates, level, motif = 'back-rank') {
   const first = mates[0];
+  const sideToMove = fen.split(' ')[1];
   return {
-    drill: 'mate-one',
+    id: `${motif}-${sideToMove}-${fen.split(' ')[0]}`,
+    drill: 'mate-one', motif, sideToMove, orientation: sideToMove, difficulty: level,
     fen,
     level,
+    solutionPiece: /^[KQRBN]/.test(first.san) ? first.san[0].toLowerCase() : 'p',
     solutions: mates.map((m) => m.san),
     target: { from: first.from, to: first.to },
     targetSan: first.san,
     goal: 'Deliver checkmate in ONE move!',
     caption: 'The black king is nearly trapped — one move finishes the job.',
-    hint: `Play ${first.san} and the king will have no safe square to run to.`
+    hint: `Play ${first.san} and the king will have no safe square to run to.`,
+    hints: ['Start by looking at every check.', `The mating piece starts on ${first.from}.`],
+    explanation: 'The mating move checks the king and covers every available escape square.'
   };
 }
 
@@ -372,31 +419,48 @@ function curatedMateOne(Chess, rng, seen, level) {
     if (seen) seen.add(p.fen);
     _lastMateIndex = i;
     const mv = new Chess(p.fen).move(p.solution);
-    return puzzleFromMate(p.fen, [{ from: mv.from, to: mv.to, san: p.solution }], level);
+    return puzzleFromMate(p.fen, [{ from: mv.from, to: mv.to, san: p.solution }], level, 'curated-mate');
   }
   return null;
 }
 
+const MATE_VARIANTS = [
+  ['back-rank', 'backRank'], ['rook-corridor', 'backRank'],
+  ['queen-and-king', 'cornerBox'], ['knight-mate', 'knightCage'],
+  ['bishop-diagonal', 'diagonal'], ['queen-battery', 'diagonal'],
+  ['supported-rook', 'backRank'], ['blocked-king', 'knightCage']
+];
 const MATE_LEVELS = {
-  1: { families: ['backRank'], minMates: 1, maxMates: 3, decoys: [0, 1], lure: false },
-  2: { families: ['backRank', 'cornerBox', 'knightCage'], minMates: 1, maxMates: 1, decoys: [1, 2], lure: false },
-  3: { families: ['cornerBox', 'diagonal'], minMates: 1, maxMates: 1, decoys: [2, 3], lure: true }
+  1: { variants: MATE_VARIANTS, minMates: 1, maxMates: 3, decoys: [0, 1], lure: false },
+  2: { variants: MATE_VARIANTS, minMates: 1, maxMates: 1, decoys: [1, 2], lure: false },
+  3: { variants: MATE_VARIANTS, minMates: 1, maxMates: 1, decoys: [2, 3], lure: true }
 };
 
-export function mateOnePuzzle(Chess, { rng = Math.random, seen, level = 1 } = {}) {
+function mateMovesForFen(Chess, fen) {
+  const c = new Chess(fen); const mates = [];
+  for (const m of c.moves({ verbose: true })) { c.move(m); if (c.isCheckmate()) mates.push({ from: m.from, to: m.to, san: m.san }); c.undo(); }
+  return mates;
+}
+
+export function mateOnePuzzle(Chess, { rng = Math.random, seen, level = 1, scheduler } = {}) {
   const cfg = MATE_LEVELS[level] || MATE_LEVELS[1];
-  const families = cfg.families.map((key) => MATE_FAMILIES[key]);
   for (let attempt = 0; attempt < 200; attempt++) {
     const wantLure = cfg.lure && attempt < 60;   // prefer lure mates on expert, don't starve on them
-    const { board, lane } = families[Math.floor(rng() * families.length)](rng);
+    const [motif, family] = cfg.variants[Math.floor(rng() * cfg.variants.length)];
+    const { board, lane } = MATE_FAMILIES[family](rng);
     const good = () => inspectMateOne(Chess, board, { minMates: cfg.minMates, maxMates: cfg.maxMates, wantLure });
     if (!good()) continue;
     decorateMateBoard(board, lane, rng, cfg.decoys, () => !!good());
     const got = good();
     if (!got) continue;
-    if (seen && seen.has(got.fen)) continue;
-    if (seen) seen.add(got.fen);
-    return puzzleFromMate(got.fen, got.mates, level);
+    for (const side of attempt % 2 ? ['b', 'w'] : ['w', 'b']) {
+      const fen = side === 'b' ? invertPuzzleFen(got.fen) : got.fen;
+      const mates = side === 'b' ? mateMovesForFen(Chess, fen) : got.mates;
+      const p = puzzleFromMate(fen, mates, level, motif);
+      if ((seen && seen.has(fen)) || (scheduler && !scheduler.allows(p))) continue;
+      if (seen) seen.add(fen);
+      return p;
+    }
   }
   return curatedMateOne(Chess, rng, seen, level);
 }

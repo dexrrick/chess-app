@@ -12,7 +12,7 @@
 import { pieceSvg, PIECE_NAMES, PIECE_VALUES } from './src/pieces.js';
 import { Engine, DIFFICULTIES, sleep } from './src/engine.js';
 import { classify, describeMove, describeHint, openingTip, evalText, phaseOf } from './src/coach.js';
-import { DRILL_IDS, DRILL_LABELS, makePuzzle, isSolved, levelForStreak } from './src/drills.js';
+import { DRILL_IDS, DRILL_LABELS, PuzzleScheduler, makePuzzle, isSolved, levelForStreak } from './src/drills.js';
 
 /* ========================================================================== */
 /*  Load chess.js                                                             */
@@ -477,9 +477,9 @@ const order = { q: 0, r: 1, b: 2, n: 3, p: 4 };
 // Determine who sits at the top.
   let topColor, bottomColor, topName, bottomName;
   if (state.mode === 'practice') {
-    // The solver always plays the winning side (White) from the bottom.
-    topColor = 'b';
-    bottomColor = 'w';
+    // Every puzzle is oriented with its solving side at the bottom.
+    bottomColor = state.puzzle?.sideToMove || 'w';
+    topColor = otherColor(bottomColor);
     topName = 'Puzzle';
     bottomName = 'You';
   } else if (state.mode === 'human') {
@@ -1306,6 +1306,7 @@ const PRAISE = {
 };
 
 const puzzleSeen = new Set();   // FENs already shown this session, so drills stay varied
+const puzzleScheduler = new PuzzleScheduler();
 
 const LEVEL_NAMES = { 1: 'easy', 2: 'hard', 3: 'expert' };
 
@@ -1323,7 +1324,7 @@ function bumpStreak(delta) {
 }
 
 function newPuzzle() {
-  state.puzzle = makePuzzle(state.Chess, state.drill, { seen: puzzleSeen, level: state.drillLevel });
+  state.puzzle = makePuzzle(state.Chess, state.drill, { seen: puzzleSeen, scheduler: puzzleScheduler, level: state.drillLevel });
   const p = state.puzzle;
   if (!p) return;
 
@@ -1339,7 +1340,8 @@ function newPuzzle() {
   clearTimeout(state.puzzleTimer);
   cacheEval(null, 0);
   state.busy = false;
-  state.flipped = false;          // solver (White) always sits at the bottom
+  state.flipped = p.sideToMove === 'b'; // solver always sits at the bottom
+  puzzleScheduler.record(p);
 
   showBanner('');
   renderPuzzlePrompt();
