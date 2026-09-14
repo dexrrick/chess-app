@@ -1,0 +1,672 @@
+
+> chess-club@1.0.0 test
+> node test-all.mjs
+
+
+  Test server ready at http://127.0.0.1:8912
+
+
+============================================================
+  Worker unit tests
+============================================================
+
+[PASS] root serves the app shell
+[PASS] root is HTML  -> text/html; charset=utf-8
+[PASS] JS asset served with JS content-type  -> text/javascript; charset=utf-8
+[PASS] wasm asset served with application/wasm  -> application/wasm
+[PASS] missing .wasm stays a 404 (not HTML)  -> 404
+[PASS] missing .js stays a 404 (not HTML)  -> 404
+[PASS] missing .css stays a 404  -> 404
+[PASS] extension-less deep link returns the app shell  -> 200
+[PASS] deep link with a real Accept header returns the shell
+[PASS] CSP is attached to fallback responses
+[PASS] CSP allows WebAssembly compilation  -> default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https:/
+[PASS] CSP allows worker scripts
+[PASS] CSP allows the chess.js/stockfish CDNs
+[PASS] CSP forbids framing
+[PASS] X-Content-Type-Options is nosniff
+[PASS] Referrer-Policy set
+[PASS] static assets get a cacheable Cache-Control  -> public, max-age=3600, must-revalidate
+[PASS] HTML is not long-cached  -> no-cache
+[PASS] non-GET to a missing route does not return the shell  -> 404
+[PASS] response body is passed through intact  -> "body{}"
+[PASS] _headers covers every asset with a /* rule  -> /*, /sw.js
+[PASS] _headers sets a Content-Security-Policy
+[PASS] _headers CSP matches the Worker CSP exactly
+[PASS] _headers "x-content-type-options" matches the Worker's  -> nosniff
+[PASS] _headers "referrer-policy" matches the Worker's  -> no-referrer
+[PASS] _headers "x-frame-options" matches the Worker's  -> DENY
+[PASS] _headers "permissions-policy" matches the Worker's  -> geolocation=(), microphone=(), camera=()
+[PASS] _headers CSP permits WebAssembly compilation
+[PASS] _headers CSP permits blob workers
+
+========================================
+  ALL WORKER TESTS PASSED
+========================================
+
+
+============================================================
+  Engine unit tests
+============================================================
+
+[PASS] engine initialises against the fake UCI worker  -> wasm
+[PASS] concurrent requests never run two searches at once  -> maxLive=1
+[PASS] the evaluation still returns its own number  -> 100
+[PASS] the reply is the move the engine gave THAT search  -> {"from":"g1","to":"f3"}
+[PASS] the reply is legal
+[PASS] the search slot is clean afterwards
+[PASS] issue order reversed: still one search at a time  -> maxLive=1
+[PASS] issue order reversed: the reply matches its own search  -> {"from":"e2","to":"e4"}
+[PASS] issue order reversed: the evaluation matches its own search  -> 101
+[PASS] the abandoned evaluation resolves (heuristic fallback)  -> 100
+[PASS] the next search is not resolved by the abandoned one  -> {"from":"g1","to":"f3"}
+[PASS] still only one search at a time after an abandon  -> maxLive=1
+[PASS] a timed-out evaluation degrades instead of hanging  -> 0
+[PASS] the engine is still usable after a timeout  -> {"from":"g1","to":"f3"}
+[PASS] every queued request completes  -> 100, 101, 102, 103
+[PASS] a burst is still serialised to one search at a time  -> maxLive=1
+[PASS] a worker error resolves the in-flight search  -> 0
+[PASS] the engine recovers after a worker error  -> {"from":"g1","to":"f3"}
+[PASS] all builds failing degrades to the pocket bot  -> pocket
+[PASS] the pocket bot still returns a legal move  -> {"from":"d2","to":"d4"}
+[PASS] the fallback evaluation is a number  -> 0
+[PASS] three difficulty tiers are still defined  -> beginner,casual,challenger
+[PASS] challenger still searches deepest
+[PASS] count 1 returns exactly one move  -> [{"from":"e2","to":"e4"}]
+[PASS] count 1 never sends the MultiPV option  -> none
+[PASS] count 3 returns three moves  -> [{"from":"e2","to":"e4"},{"from":"g1","to":"f3"},{"from":"d2","to":"d4"}]
+[PASS] the moves come back in engine rank order  -> e2e4,g1f3,d2d4
+[PASS] MultiPV is set for the search and restored afterwards  -> setoption name MultiPV value 3 | setoption name MultiPV value 1
+[PASS] every ranked move is legal
+[PASS] falls back to the single best move when no pv lines arrive  -> [{"from":"d2","to":"d4"}]
+[PASS] MultiPV is still restored after that search  -> setoption name MultiPV value 3 | setoption name MultiPV value 1
+
+========================================
+  ALL ENGINE TESTS PASSED
+========================================
+
+
+============================================================
+  Coach unit tests
+============================================================
+
+[PASS] tier "brilliant" has a matching key  -> brilliant
+[PASS] tier "brilliant" has a label
+[PASS] tier "best" has a matching key  -> best
+[PASS] tier "best" has a label
+[PASS] tier "good" has a matching key  -> good
+[PASS] tier "good" has a label
+[PASS] tier "okay" has a matching key  -> okay
+[PASS] tier "okay" has a label
+[PASS] tier "inaccuracy" has a matching key  -> inaccuracy
+[PASS] tier "inaccuracy" has a label
+[PASS] tier "mistake" has a matching key  -> mistake
+[PASS] tier "mistake" has a label
+[PASS] tier "blunder" has a matching key  -> blunder
+[PASS] tier "blunder" has a label
+[PASS] tier ceilings increase from best to worst  -> 0,10,50,120,250,500,Infinity
+[PASS] loss 10 is still "best"  -> best
+[PASS] loss 11 drops to "good"  -> good
+[PASS] loss 50 is "good"  -> good
+[PASS] loss 51 drops to "okay"  -> okay
+[PASS] loss 120 is "okay"  -> okay
+[PASS] loss 121 drops to "inaccuracy"  -> inaccuracy
+[PASS] loss 250 is "inaccuracy"  -> inaccuracy
+[PASS] loss 251 drops to "mistake"  -> mistake
+[PASS] loss 500 is "mistake"  -> mistake
+[PASS] loss 501 drops to "blunder"  -> blunder
+[PASS] an engine-best quiet move is "best"  -> best
+[PASS] an engine-best capture is "brilliant"
+[PASS] an engine-best check is "brilliant"
+[PASS] an engine-best castle is "brilliant"
+[PASS] an engine-best promotion is "brilliant"
+[PASS] a lossy capture is never brilliant  -> mistake
+[PASS] no declared tier is unreachable  -> all reachable
+[PASS] classify never returns an undeclared tier  -> none
+[PASS] severity never improves as the loss grows  -> broke at loss=-1
+[PASS] a top-choice hint names the move and squares  -> Try Nf3 — move from g1 to f3. This is a strong idea. It keeps everything safe and makes your position a bit better. Then look at what it attacks!
+[PASS] a top-choice hint uses the strong line  -> Try Nf3 — move from g1 to f3. This is a strong idea. It keeps everything safe and makes your position a bit better. Then look at what it attacks!
+[PASS] a lesser hint uses the safe line  -> Try Nf3 — move from g1 to f3. It keeps everything safe and makes your position a bit better.
+[PASS] the two hint texts are no longer identical
+[PASS] a brilliant hint also uses the strong line
+[PASS] an untiered hint still returns a sentence
+[PASS] describeMove wires up tier "brilliant"  -> Brilliant! vs Brilliant!
+[PASS] describeMove gives "brilliant" real text
+[PASS] describeMove wires up tier "best"  -> Best move! vs Best move!
+[PASS] describeMove gives "best" real text
+[PASS] describeMove wires up tier "good"  -> Solid vs Solid
+[PASS] describeMove gives "good" real text
+[PASS] describeMove wires up tier "okay"  -> Okay vs Okay
+[PASS] describeMove gives "okay" real text
+[PASS] describeMove wires up tier "inaccuracy"  -> Hmm… vs Hmm…
+[PASS] describeMove gives "inaccuracy" real text
+[PASS] describeMove wires up tier "mistake"  -> Careful! vs Careful!
+[PASS] describeMove gives "mistake" real text
+[PASS] describeMove wires up tier "blunder"  -> Oops! vs Oops!
+[PASS] describeMove gives "blunder" real text
+[PASS] describeMove titles include the side and the move  -> Black played Qh5
+
+========================================
+  ALL COACH TESTS PASSED
+========================================
+
+
+============================================================
+  Drill unit tests
+============================================================
+
+[PASS] a defended bishop capture has an immediate legal recapture
+[PASS] a defended bishop capture is excluded from free-piece candidates
+[PASS] two drills are registered  -> free-piece,mate-one
+[PASS] drill "free-piece" has a label
+[PASS] drill "mate-one" has a label
+[PASS] mate puzzle #0 is White to move  -> r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4
+[PASS] mate puzzle #0 has a mating move  -> solutions=Qxf7#
+[PASS] mate puzzle #0 declared solution "Qxf7#" is legal and mates  -> Qxf7#
+[PASS] mate puzzle #1 is White to move  -> 6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1
+[PASS] mate puzzle #1 has a mating move  -> solutions=Ra8#
+[PASS] mate puzzle #1 declared solution "Ra8#" is legal and mates  -> Ra8#
+[PASS] mate puzzle #2 is White to move  -> 6k1/5ppp/8/8/8/8/5PPP/2Q3K1 w - - 0 1
+[PASS] mate puzzle #2 has a mating move  -> solutions=Qc8#
+[PASS] mate puzzle #2 declared solution "Qc8#" is legal and mates  -> Qc8#
+[PASS] mate puzzle #3 is White to move  -> 6k1/5ppp/8/8/8/1Q6/5PPP/6K1 w - - 0 1
+[PASS] mate puzzle #3 has a mating move  -> solutions=Qb8#
+[PASS] mate puzzle #3 declared solution "Qb8#" is legal and mates  -> Qb8#
+[PASS] mate puzzle #4 is White to move  -> k7/8/1QK5/8/8/8/8/8 w - - 0 1
+[PASS] mate puzzle #4 has a mating move  -> solutions=Qb7#
+[PASS] mate puzzle #4 declared solution "Qb7#" is legal and mates  -> Qb7#
+[PASS] mate puzzle #5 is White to move  -> 7k/6pp/8/8/8/8/7Q/6K1 w - - 0 1
+[PASS] mate puzzle #5 has a mating move  -> solutions=Qb8#
+[PASS] mate puzzle #5 declared solution "Qb8#" is legal and mates  -> Qb8#
+[PASS] mate puzzle #6 is White to move  -> k7/8/8/8/8/8/1R6/1R1K4 w - - 0 1
+[PASS] mate puzzle #6 has a mating move  -> solutions=Ra2#,Ra1#
+[PASS] mate puzzle #6 declared solution "Ra2#" is legal and mates  -> Ra2#
+[PASS] mate puzzle #7 is White to move  -> 6k1/5ppp/8/8/8/1Q6/8/6K1 w - - 0 1
+[PASS] mate puzzle #7 has a mating move  -> solutions=Qb8#
+[PASS] mate puzzle #7 declared solution "Qb8#" is legal and mates  -> Qb8#
+[PASS] mate puzzle #8 is White to move  -> r1bqkbnr/pppp2pp/2n2p2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 2 4
+[PASS] mate puzzle #8 has a mating move  -> solutions=Qf7#
+[PASS] mate puzzle #8 declared solution "Qf7#" is legal and mates  -> Qf7#
+[PASS] mate puzzle #9 is White to move  -> 6k1/5ppp/8/8/8/8/2R5/1R4K1 w - - 0 1
+[PASS] mate puzzle #9 has a mating move  -> solutions=Rc8#,Rb8#
+[PASS] mate puzzle #9 declared solution "Rc8#" is legal and mates  -> Rc8#
+[PASS] mate puzzle #10 is White to move  -> 6rk/6pp/8/6N1/8/8/8/6K1 w - - 0 1
+[PASS] mate puzzle #10 has a mating move  -> solutions=Nf7#
+[PASS] mate puzzle #10 declared solution "Nf7#" is legal and mates  -> Nf7#
+[PASS] fallback 6k1/5ppp/r7/1P6/8/… has a free capture worth >=3  -> bxa6=r
+[PASS] fallback 6k1/5ppp/8/8/6n1/7… has a free capture worth >=3  -> hxg4=n
+[PASS] start position has no hanging captures
+[PASS] freePiecePuzzle generated a puzzle  -> rnq1kbnr/1pp1pp1p/3P2p1/p7/4P3/6P1/PPbP1P1P/RNBQK1NR w KQkq - 1 8
+[PASS] free-piece puzzle is White to move
+[PASS] free-piece puzzle explains the goal
+[PASS] free-piece puzzle names the target
+[PASS] free-piece puzzle exposes targetSan
+[PASS] the advertised target move is a legal capture  -> Qxc2
+[PASS] fallback target solves the free-piece drill
+[PASS] a quiet move is not "solved"  -> b6
+[PASS] a random mate-one move is not solved (unless it mated)
+[PASS] playing the solution checks mate
+[PASS] makePuzzle('free-piece') returns a free-piece puzzle
+[PASS] makePuzzle('free-piece') has goal/hint text
+[PASS] makePuzzle('mate-one') returns a mate-one puzzle
+[PASS] makePuzzle('mate-one') has goal/hint text
+[PASS] gen #0 starts quiet (solver to move, nobody checked)  -> kr2N3/pp6/8/8/2N5/5B2/8/7K w - - 0 1
+[PASS] gen #0 has exactly one mating move  -> Nc7#
+[PASS] gen #0 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #1 starts quiet (solver to move, nobody checked)  -> 2k5/1pp5/2B4p/8/4p3/8/8/R6K w - - 0 1
+[PASS] gen #1 has exactly one mating move  -> Ra8#
+[PASS] gen #1 advertised mate "Ra8#" is legal and mates  -> Ra8#
+[PASS] gen #2 starts quiet (solver to move, nobody checked)  -> 6k1/5ppp/N7/8/8/8/7Q/5K2 w - - 0 1
+[PASS] gen #2 has exactly one mating move  -> Qb8#
+[PASS] gen #2 advertised mate "Qb8#" is legal and mates  -> Qb8#
+[PASS] gen #3 starts quiet (solver to move, nobody checked)  -> k7/8/2K5/8/1Q6/8/8/5B2 w - - 0 1
+[PASS] gen #3 has exactly one mating move  -> Qb7#
+[PASS] gen #3 advertised mate "Qb7#" is legal and mates  -> Qb7#
+[PASS] gen #4 starts quiet (solver to move, nobody checked)  -> kr6/pp6/8/1N6/6N1/8/8/7K w - - 0 1
+[PASS] gen #4 has exactly one mating move  -> Nc7#
+[PASS] gen #4 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #5 starts quiet (solver to move, nobody checked)  -> k3b3/7r/4b3/8/8/3b4/3PP3/3K4 b - - 0 1
+[PASS] gen #5 has exactly one mating move  -> Rh1#
+[PASS] gen #5 advertised mate "Rh1#" is legal and mates  -> Rh1#
+[PASS] gen #6 starts quiet (solver to move, nobody checked)  -> 5k2/4ppp1/1p5R/8/2p5/8/8/5K2 w - - 0 1
+[PASS] gen #6 has exactly one mating move  -> Rh8#
+[PASS] gen #6 advertised mate "Rh8#" is legal and mates  -> Rh8#
+[PASS] gen #7 starts quiet (solver to move, nobody checked)  -> 8/8/6Q1/8/2p5/3N1K2/8/7k w - - 0 1
+[PASS] gen #7 has exactly one mating move  -> Qg2#
+[PASS] gen #7 advertised mate "Qg2#" is legal and mates  -> Qg2#
+[PASS] gen #8 starts quiet (solver to move, nobody checked)  -> kr6/pp6/4N2p/8/8/8/8/7K w - - 0 1
+[PASS] gen #8 has exactly one mating move  -> Nc7#
+[PASS] gen #8 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #9 starts quiet (solver to move, nobody checked)  -> 5k2/4pp2/8/R5p1/8/8/1B6/7K w - - 0 1
+[PASS] gen #9 has exactly one mating move  -> Ra8#
+[PASS] gen #9 advertised mate "Ra8#" is legal and mates  -> Ra8#
+[PASS] gen #10 starts quiet (solver to move, nobody checked)  -> 3k4/2ppp3/8/7p/R2p4/8/8/6K1 w - - 0 1
+[PASS] gen #10 has exactly one mating move  -> Ra8#
+[PASS] gen #10 advertised mate "Ra8#" is legal and mates  -> Ra8#
+[PASS] gen #11 starts quiet (solver to move, nobody checked)  -> 8/8/1Q6/2N5/p7/2K5/8/k7 w - - 0 1
+[PASS] gen #11 has exactly one mating move  -> Qb2#
+[PASS] gen #11 advertised mate "Qb2#" is legal and mates  -> Qb2#
+[PASS] gen #12 starts quiet (solver to move, nobody checked)  -> kr6/pp6/N7/8/2N5/8/8/1B5K w - - 0 1
+[PASS] gen #12 has exactly one mating move  -> Nc7#
+[PASS] gen #12 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #13 starts quiet (solver to move, nobody checked)  -> k7/8/1n6/7q/8/2b2b2/5PP1/5K2 b - - 0 1
+[PASS] gen #13 has exactly one mating move  -> Qh1#
+[PASS] gen #13 advertised mate "Qh1#" is legal and mates  -> Qh1#
+[PASS] gen #14 starts quiet (solver to move, nobody checked)  -> 7k/8/7n/8/8/r7/6PP/7K b - - 0 1
+[PASS] gen #14 has exactly one mating move  -> Ra1#
+[PASS] gen #14 advertised mate "Ra1#" is legal and mates  -> Ra1#
+[PASS] gen #15 starts quiet (solver to move, nobody checked)  -> 7k/8/5K2/8/6Q1/5p2/8/8 w - - 0 1
+[PASS] gen #15 has exactly one mating move  -> Qg7#
+[PASS] gen #15 advertised mate "Qg7#" is legal and mates  -> Qg7#
+[PASS] gen #16 starts quiet (solver to move, nobody checked)  -> kr6/pp6/8/3N4/8/8/8/2N4K w - - 0 1
+[PASS] gen #16 has exactly one mating move  -> Nc7#
+[PASS] gen #16 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #17 starts quiet (solver to move, nobody checked)  -> 3k4/3pp3/3B4/8/7R/1p6/8/K7 w - - 0 1
+[PASS] gen #17 has exactly one mating move  -> Rh8#
+[PASS] gen #17 advertised mate "Rh8#" is legal and mates  -> Rh8#
+[PASS] gen #18 starts quiet (solver to move, nobody checked)  -> 6k1/5ppp/R1N5/8/8/8/8/6K1 w - - 0 1
+[PASS] gen #18 has exactly one mating move  -> Ra8#
+[PASS] gen #18 advertised mate "Ra8#" is legal and mates  -> Ra8#
+[PASS] gen #19 starts quiet (solver to move, nobody checked)  -> k7/8/2K1N3/8/1Q2N3/8/8/8 w - - 0 1
+[PASS] gen #19 has exactly one mating move  -> Qb7#
+[PASS] gen #19 advertised mate "Qb7#" is legal and mates  -> Qb7#
+[PASS] gen #20 starts quiet (solver to move, nobody checked)  -> kr6/pp6/4N3/8/8/8/3p4/7K w - - 0 1
+[PASS] gen #20 has exactly one mating move  -> Nc7#
+[PASS] gen #20 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #21 starts quiet (solver to move, nobody checked)  -> 4k3/4pp2/5p1R/8/8/7B/8/K7 w - - 0 1
+[PASS] gen #21 has exactly one mating move  -> Rh8#
+[PASS] gen #21 advertised mate "Rh8#" is legal and mates  -> Rh8#
+[PASS] gen #22 starts quiet (solver to move, nobody checked)  -> 4k3/3ppp2/2N5/8/R6N/8/8/6K1 w - - 0 1
+[PASS] gen #22 has exactly one mating move  -> Ra8#
+[PASS] gen #22 advertised mate "Ra8#" is legal and mates  -> Ra8#
+[PASS] gen #23 starts quiet (solver to move, nobody checked)  -> 8/8/1N4Q1/8/8/5K2/8/7k w - - 0 1
+[PASS] gen #23 has exactly one mating move  -> Qg2#
+[PASS] gen #23 advertised mate "Qg2#" is legal and mates  -> Qg2#
+[PASS] gen #24 starts quiet (solver to move, nobody checked)  -> kr6/pp6/N7/8/4B3/8/2B5/7K w - - 0 1
+[PASS] gen #24 has exactly one mating move  -> Nc7#
+[PASS] gen #24 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #25 starts quiet (solver to move, nobody checked)  -> 5k2/5pp1/8/6B1/3p4/8/1B5R/K7 w - - 0 1
+[PASS] gen #25 has exactly one mating move  -> Rh8#
+[PASS] gen #25 advertised mate "Rh8#" is legal and mates  -> Rh8#
+[PASS] gen #26 starts quiet (solver to move, nobody checked)  -> 3k4/2ppp3/8/8/8/3p4/4N2Q/5K2 w - - 0 1
+[PASS] gen #26 has exactly one mating move  -> Qh8#
+[PASS] gen #26 advertised mate "Qh8#" is legal and mates  -> Qh8#
+[PASS] gen #27 starts quiet (solver to move, nobody checked)  -> 8/8/1Q4N1/8/8/2K5/8/k7 w - - 0 1
+[PASS] gen #27 has exactly one mating move  -> Qb2#
+[PASS] gen #27 advertised mate "Qb2#" is legal and mates  -> Qb2#
+[PASS] gen #28 starts quiet (solver to move, nobody checked)  -> kr6/pp6/8/3N1N2/8/8/8/2N4K w - - 0 1
+[PASS] gen #28 has exactly one mating move  -> Nc7#
+[PASS] gen #28 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #29 starts quiet (solver to move, nobody checked)  -> k7/7r/8/4r3/8/4bb2/5PP1/5K2 b - - 0 1
+[PASS] gen #29 has exactly one mating move  -> Rh1#
+[PASS] gen #29 advertised mate "Rh1#" is legal and mates  -> Rh1#
+[PASS] gen #30 starts quiet (solver to move, nobody checked)  -> 2k5/1ppp4/7R/8/8/8/5p2/5K2 w - - 0 1
+[PASS] gen #30 has exactly one mating move  -> Rh8#
+[PASS] gen #30 advertised mate "Rh8#" is legal and mates  -> Rh8#
+[PASS] gen #31 starts quiet (solver to move, nobody checked)  -> 7k/8/5K2/8/6Q1/3N4/8/5B2 w - - 0 1
+[PASS] gen #31 has exactly one mating move  -> Qg7#
+[PASS] gen #31 advertised mate "Qg7#" is legal and mates  -> Qg7#
+[PASS] gen #32 starts quiet (solver to move, nobody checked)  -> kr2N3/pp6/8/6p1/8/8/8/7K w - - 0 1
+[PASS] gen #32 has exactly one mating move  -> Nc7#
+[PASS] gen #32 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #33 starts quiet (solver to move, nobody checked)  -> 3k4/2pp4/R2B4/6p1/8/4p3/8/7K w - - 0 1
+[PASS] gen #33 has exactly one mating move  -> Ra8#
+[PASS] gen #33 advertised mate "Ra8#" is legal and mates  -> Ra8#
+[PASS] gen #34 starts quiet (solver to move, nobody checked)  -> 6k1/5ppp/8/8/6NQ/8/8/5K2 w - - 0 1
+[PASS] gen #34 has exactly one mating move  -> Qd8#
+[PASS] gen #34 advertised mate "Qd8#" is legal and mates  -> Qd8#
+[PASS] gen #35 starts quiet (solver to move, nobody checked)  -> k7/8/2K5/8/1Q2R3/8/8/8 w - - 0 1
+[PASS] gen #35 has exactly one mating move  -> Qb7#
+[PASS] gen #35 advertised mate "Qb7#" is legal and mates  -> Qb7#
+[PASS] gen #36 starts quiet (solver to move, nobody checked)  -> kr6/pp6/8/1N6/8/8/8/B6K w - - 0 1
+[PASS] gen #36 has exactly one mating move  -> Nc7#
+[PASS] gen #36 advertised mate "Nc7#" is legal and mates  -> Nc7#
+[PASS] gen #37 starts quiet (solver to move, nobody checked)  -> 4k3/3pp3/8/8/8/R3R3/B7/7K w - - 0 1
+[PASS] gen #37 has exactly one mating move  -> Ra8#
+[PASS] gen #37 advertised mate "Ra8#" is legal and mates  -> Ra8#
+[PASS] gen #38 starts quiet (solver to move, nobody checked)  -> 4k3/3ppp2/8/8/8/2B5/Q7/5NK1 w - - 0 1
+[PASS] gen #38 has exactly one mating move  -> Qa8#
+[PASS] gen #38 advertised mate "Qa8#" is legal and mates  -> Qa8#
+[PASS] gen #39 starts quiet (solver to move, nobody checked)  -> 8/8/6Q1/5N2/1p6/5K2/8/7k w - - 0 1
+[PASS] gen #39 has exactly one mating move  -> Qg2#
+[PASS] gen #39 advertised mate "Qg2#" is legal and mates  -> Qg2#
+[PASS] generator produced puzzles across seeds  -> got=40
+[PASS] generated puzzles within one session are all distinct  -> unique=40 got=40 (seen-set dedup)
+[PASS] e2 is defended by White after 1.e4
+[PASS] b2 is not defended by White after 1.e4
+[PASS] e4 is not defended by the pawn standing on it
+[PASS] probe answers for the side not to move (White here)
+[PASS] hanging a6 rook is undefended by Black
+[PASS] sanForMove names the winning move  -> Qxc2
+[PASS] levelForStreak: 1 until streak 3, 2 until streak 6, 3 from streak 7  -> 1,1,1,2,2,2,2,3,3,3
+[PASS] levelForStreak clamps negatives
+[PASS] L1 #0 allows 1..3 mating moves  -> Nf7#
+[PASS] L1 #1 allows 1..3 mating moves  -> Qa8#,Qd8#
+[PASS] L1 #2 allows 1..3 mating moves  -> Ra8#
+[PASS] L1 #3 allows 1..3 mating moves  -> Qb2#
+[PASS] L1 #4 allows 1..3 mating moves  -> Nf7#
+[PASS] L1 #5 allows 1..3 mating moves  -> Qa8#
+[PASS] L1 #6 allows 1..3 mating moves  -> Qd8#
+[PASS] L1 #7 allows 1..3 mating moves  -> Qg7#
+[PASS] L1 #8 allows 1..3 mating moves  -> Nf7#
+[PASS] L1 #9 allows 1..3 mating moves  -> Qa8#,Qf8#
+[PASS] L1 #10 allows 1..3 mating moves  -> Rh8#
+[PASS] L1 #11 allows 1..3 mating moves  -> Qb7#
+[PASS] L1 #12 allows 1..3 mating moves  -> Nf7#
+[PASS] L1 #13 allows 1..3 mating moves  -> Qh8#
+[PASS] L1 #14 allows 1..3 mating moves  -> Rh1#
+[PASS] L1 #15 allows 1..3 mating moves  -> Qg2#
+[PASS] L1 #16 allows 1..3 mating moves  -> Nf7#
+[PASS] L1 #17 allows 1..3 mating moves  -> Qb8#
+[PASS] L1 #18 allows 1..3 mating moves  -> Qe8#,Qh8#
+[PASS] L1 #19 allows 1..3 mating moves  -> Qb2#
+[PASS] L1 #20 allows 1..3 mating moves  -> Nf7#,Ng6#
+[PASS] L1 #21 allows 1..3 mating moves  -> Qh8#
+[PASS] L1 #22 allows 1..3 mating moves  -> Rh8#
+[PASS] L1 #23 allows 1..3 mating moves  -> Qg7#
+[PASS] L1 #24 allows 1..3 mating moves  -> Nf7#
+[PASS] L1 #25 allows 1..3 mating moves  -> Qh1#,Qb1#
+[PASS] L1 #26 allows 1..3 mating moves  -> Ra8#
+[PASS] L1 #27 allows 1..3 mating moves  -> Qb7#
+[PASS] L1 #28 allows 1..3 mating moves  -> Nf7#
+[PASS] L1 #29 allows 1..3 mating moves  -> Qa8#,Qg8#
+[PASS] L1 #30 allows 1..3 mating moves  -> Qa8#,Qd8#
+[PASS] L1 #31 allows 1..3 mating moves  -> Qg2#
+[PASS] L1 #32 allows 1..3 mating moves  -> Nf7#
+[PASS] L1 #33 allows 1..3 mating moves  -> Qa8#
+[PASS] L1 #34 allows 1..3 mating moves  -> Qa8#,Qe8#
+[PASS] L1 #35 allows 1..3 mating moves  -> Qb2#
+[PASS] L1 #36 allows 1..3 mating moves  -> Nf7#
+[PASS] L1 #37 allows 1..3 mating moves  -> Qa8#,Qc8#
+[PASS] L1 #38 allows 1..3 mating moves  -> Qf8#,Qh8#
+[PASS] L1 #39 allows 1..3 mating moves  -> Qg7#
+[PASS] L1 generated puzzles across seeds  -> got=40
+[PASS] L1 produced some multi-mate (friendlier) puzzles  -> multi=10
+[PASS] L2 #0 has exactly one mating move  -> kr2N3/pp6/8/8/8/4N3/2N5/7K w - - 0 1
+[PASS] L2 #1 has exactly one mating move  -> 3k4/3pp3/8/pp6/8/7R/7B/K7 w - - 0 1
+[PASS] L2 #2 has exactly one mating move  -> k7/pp6/6B1/8/Q7/8/6p1/4K3 w - - 0 1
+[PASS] L2 #3 has exactly one mating move  -> k7/8/2K5/8/1Q3N2/8/8/8 w - - 0 1
+[PASS] L2 #4 has exactly one mating move  -> kr6/pp6/8/1N6/8/3p4/8/7K w - - 0 1
+[PASS] L2 #5 has exactly one mating move  -> 4k3/4pp2/4B3/8/8/8/6NR/K7 w - - 0 1
+[PASS] L2 #6 has exactly one mating move  -> 7k/6pp/8/8/7Q/N7/6N1/1K6 w - - 0 1
+[PASS] L2 #7 has exactly one mating move  -> 8/8/6Q1/8/2N5/5K2/8/7k w - - 0 1
+[PASS] L2 #8 has exactly one mating move  -> kr6/pp6/8/3N4/4B3/8/8/7K w - - 0 1
+[PASS] L2 #9 has exactly one mating move  -> 2k5/1pp5/2B3B1/Q7/8/8/8/7K w - - 0 1
+[PASS] L2 #10 has exactly one mating move  -> k7/pp6/8/8/8/8/7R/1K3N2 w - - 0 1
+[PASS] L2 #11 has exactly one mating move  -> 8/8/BQ6/8/8/2K5/7p/k7 w - - 0 1
+[PASS] L2 #12 has exactly one mating move  -> kr2N3/pp6/8/5N2/8/8/8/6NK w - - 0 1
+[PASS] L2 #13 has exactly one mating move  -> 3k4/2pp4/8/2B5/8/2N3N1/8/R6K w - - 0 1
+[PASS] L3 #0 has exactly one mating move  -> 6k1/6nq/8/8/3n4/P7/6PP/7K b - - 0 1
+[PASS] L3 #1 has exactly one mating move  -> 7k/8/4pK2/8/6Q1/8/8/7N w - - 0 1
+[PASS] L3 #2 has exactly one mating move  -> 6rk/6pp/8/4N3/3B4/3R4/8/K7 w - - 0 1
+[PASS] L3 #3 has exactly one mating move  -> 4k3/3pp3/4B3/8/8/2B5/R7/5R1K w - - 0 1
+[PASS] L3 #4 has exactly one mating move  -> 6k1/8/6nq/8/2b5/8/6PP/7K b - - 0 1
+[PASS] L3 #5 has exactly one mating move  -> k7/8/2K1p3/8/1Q6/4p3/8/8 w - - 0 1
+[PASS] L3 #6 has exactly one mating move  -> kr6/pp6/8/3N4/1p6/B7/8/7K w - - 0 1
+[PASS] L3 #7 has exactly one mating move  -> 5k2/4pp2/2N3B1/8/R7/8/8/B6K w - - 0 1
+[PASS] L3 #8 has exactly one mating move  -> 3k4/2ppp3/5p2/7Q/8/8/8/K3R3 w - - 0 1
+[PASS] L3 #9 has exactly one mating move  -> 8/8/N5Q1/8/8/1p3K2/1p6/7k w - - 0 1
+[PASS] L3 #10 has exactly one mating move  -> 7k/P7/2n5/5n2/3n4/8/PP6/KR6 b - - 0 1
+[PASS] L3 #11 has exactly one mating move  -> r6k/8/6n1/1b6/8/1P5P/2PP4/3K4 b - - 0 1
+[PASS] L3 #12 has exactly one mating move  -> k7/pp6/8/7N/8/Q7/2N5/4K3 w - - 0 1
+[PASS] L3 #13 has exactly one mating move  -> 8/8/1Q4p1/7N/8/2K5/8/k7 w - - 0 1
+[PASS] L3 puzzles tend to screen lure checks  -> lures=24
+[PASS] L1 free-piece does not demand the best grab  -> needBest=false
+[PASS] L3 free-piece demands the best grab  -> needBest=true level=3
+[PASS] L2 free-piece demands the best grab too
+[PASS] L2 tracks the best-grab value  -> bestValue=5
+[PASS] synthetic hanging position offers a rook and a pawn to grab  -> 5,1
+[PASS] needBest accepts taking the rook
+[PASS] needBest rejects grabbing only the pawn
+[PASS] without needBest the pawn grab is fine
+[PASS] deterministic mate sample covers every distinct mating geometry  -> back-rank,bishop-battery,queen-touch-support,smothered-knight
+[PASS] deterministic mate sample includes both solving colours  -> w,b
+[PASS] deterministic mate sample uses several mating pieces  -> r,q,n
+[PASS] scheduler never repeats a motif consecutively
+[PASS] scheduler alternates the solving side
+[PASS] diverse puzzle back-rank-w-k7/pp6/8/8/8/3p4/7R/K7 remains a valid mate
+[PASS] diverse puzzle bishop-battery-b-7k/8/8/b7/q1b5/1b6/1PP5/2K5 remains a valid mate
+[PASS] diverse puzzle queen-touch-support-w-8/8/8/8/6Q1/4NK2/8/4B2k remains a valid mate
+[PASS] diverse puzzle smothered-knight-b-7k/8/1P6/8/8/n7/PP6/KR6 remains a valid mate
+[PASS] diverse puzzle back-rank-w-7k/6pp/8/7Q/8/8/5N2/3N1K2 remains a valid mate
+[PASS] diverse puzzle bishop-battery-b-q2n3k/8/4b3/8/b7/8/PP6/1K6 remains a valid mate
+[PASS] diverse puzzle back-rank-w-7k/6pp/8/p7/8/3N4/7Q/4K3 remains a valid mate
+[PASS] diverse puzzle bishop-battery-b-k7/8/8/4n3/5b2/7r/4PP2/4K3 remains a valid mate
+[PASS] diverse puzzle queen-touch-support-w-8/8/8/8/1Q3p2/2K5/8/k7 remains a valid mate
+[PASS] diverse puzzle smothered-knight-b-7k/8/7P/8/3n4/8/PP6/KR6 remains a valid mate
+[PASS] diverse puzzle back-rank-w-2k5/1ppp4/8/Q7/8/8/1R6/2K5 remains a valid mate
+[PASS] diverse puzzle bishop-battery-b-k7/8/2P3b1/8/7q/8/3PP3/3K4 remains a valid mate
+[PASS] diverse puzzle back-rank-w-4k3/3ppp2/8/8/Q7/8/1N6/2K5 remains a valid mate
+[PASS] diverse puzzle bishop-battery-b-k7/6r1/8/8/6b1/7q/5PP1/5K2 remains a valid mate
+[PASS] diverse puzzle queen-touch-support-w-7k/8/5K2/8/5p2/8/4N1Q1/8 remains a valid mate
+[PASS] diverse puzzle smothered-knight-b-5b1k/8/8/2n5/8/4n3/PP6/KR6 remains a valid mate
+[PASS] diverse puzzle back-rank-w-3k4/2ppp3/8/3B4/8/R7/8/7K remains a valid mate
+[PASS] diverse puzzle bishop-battery-b-2n4k/4r3/b7/q7/8/8/2PP4/3K4 remains a valid mate
+[PASS] diverse puzzle back-rank-w-5k2/4ppp1/8/R3B1N1/8/8/8/7K remains a valid mate
+[PASS] diverse puzzle bishop-battery-b-k7/n7/7r/8/6b1/1n6/5PP1/5K2 remains a valid mate
+[PASS] diverse puzzle queen-touch-support-w-k7/8/2K5/8/7N/8/pQ6/8 remains a valid mate
+[PASS] diverse puzzle smothered-knight-b-1n5k/8/8/8/3nP3/8/PP6/KR6 remains a valid mate
+[PASS] diverse puzzle back-rank-w-k7/pp6/7R/p7/8/8/5p2/3K4 remains a valid mate
+[PASS] diverse puzzle bishop-battery-b-k7/4P3/2P4b/8/7q/8/4PP2/4K3 remains a valid mate
+
+========================================
+  ALL DRILL TESTS PASSED
+========================================
+
+
+============================================================
+  Browser smoke tests
+============================================================
+
+
+== Loading http://127.0.0.1:8912/index.html ==
+
+[PASS] board renders 64 squares  -> count=64
+[PASS] 32 pieces on the board  -> count=32
+[PASS] pieces render from the local sprite sheet
+[PASS] white and black pieces use distinct sprite rows
+[PASS] chess.js loaded
+[PASS] starting position correct  -> rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+[PASS] animations default OFF (e-ink friendly)
+[PASS] animation duration var is 0ms  -> --anim-speed=0ms
+[PASS] engine initialised  -> kind=wasm
+[PASS] engine is native stockfish  -> kind=wasm
+[PASS] coach shows welcome message  -> bubbles=2
+[PASS] selecting a pawn shows legal moves  -> legal=2
+[PASS] e2e4 accepted  -> rnbqkb1r/pppppppp/7n/8/4P3/8/PPPP1PPP/RNBQKBNR
+[PASS] last-move highlight follows newest move  -> board=g8,h6 expected=g8,h6
+[PASS] coach verdict arrives promptly  -> bubble tier-info bubble tier-info bubble tier-good
+[PASS] computer replied as Black  -> w:e4 b:Nh6
+[PASS] last-move arrow is rendered  -> block 630px
+[PASS] the arrow is drawn for the move that was just played  -> {"from":"g8","to":"h6"} start=0.18 end=0.26
+[PASS] the arrowhead points at the destination, not back at the origin  -> 0.26 vs 2.06
+[PASS] the arrow follows a flip  -> start=0.18 end=0.26
+[PASS] coach explained the move  -> 3 bubbles
+[PASS] coach produced a tiered verdict
+[PASS] coach text is a real sentence  -> New gameYou are playing White. Remember  | Engine readyThe chess engine has finishe | Okay — Whitee4Fine move. Your piece is r
+[PASS] eval meter has a label  -> White is clearly better (+2.3)
+[PASS] hint gives advice
+[PASS] hint uses the strong-idea wording, not the generic line  -> Hintc4Try c4 — move from c2 to c4. This is a strong idea. It keeps everything safe and makes your position a bit better. Then look at what i
+[PASS] hint highlights squares on the board  -> c4,c2
+[PASS] undo removes moves  -> 2 -> 0
+[PASS] difficulty switch -> casual  -> casual
+[PASS] difficulty switch -> challenger  -> challenger
+[PASS] difficulty switch -> beginner  -> beginner
+[PASS] 2-player mode selectable  -> human
+[PASS] difficulty hidden in 2-player mode  -> none
+[PASS] new game resets position  -> rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+[PASS] the last-move arrow clears with the game  -> none
+[PASS] squares >= 48px @ iPad portrait (820x1180)  -> 88.9x88.9
+[PASS] squares >= 48px @ iPad landscape (1180x820)  -> 68.8x68.8
+[PASS] squares >= 48px @ iPhone portrait (390x844)  -> 48.0x48.0
+[PASS] coach panel visible on phone
+[PASS] no horizontal overflow on phone
+[PASS] board overflow is contained in its own scroller
+[PASS] no console errors
+[PASS] no failed network requests
+
+========================================
+  43/43 checks passed
+========================================
+
+
+============================================================
+  Accessibility tests
+============================================================
+
+[PASS] the board is exposed as a grid  -> grid
+[PASS] the grid is named "Chess board"  -> Chess board
+[PASS] the grid owns 8 rows (not bare gridcells)  -> rows=8
+[PASS] every row owns exactly 8 gridcells  -> 8,8,8,8,8,8,8,8
+[PASS] all 64 gridcells are named  -> 64 names
+[PASS] the gridcells are the 64 squares, in visual order  -> a8,b8,c8,d8 … e1,f1,g1,h1
+[PASS] the evaluation is no longer aria-hidden
+[PASS] the evaluation is exposed as a named group  -> Position evaluation
+[PASS] the evaluation text itself reaches assistive tech  -> "Even game (0.0)"
+[PASS] the decorative bar alone stays hidden
+[PASS] the promotion dialog opens
+[PASS] the background is inert while a dialog is open  -> true
+[PASS] focus moves into the dialog  -> Promote to queen
+[PASS] Tab stays inside the dialog  -> Promote to queen
+[PASS] Tab wraps from the last control to the first  -> Promote to queen
+[PASS] Shift+Tab wraps back to the last control  -> promo-cancel
+[PASS] Escape closes the promotion dialog
+[PASS] the background is interactive again  -> false
+[PASS] focus returns to the board  -> a8
+[PASS] the result dialog opens
+[PASS] the background is inert for the result dialog too  -> true
+[PASS] focus lands on the primary action  -> result-again
+[PASS] Escape closes the result dialog
+[PASS] closing it does not un-end the game
+[PASS] the background is interactive again  -> false
+[PASS] focus returns to the board  -> a8
+[PASS] the skip link targets the board itself, not a plain section  -> #board
+[PASS] activating the skip link moves focus to the board  -> hash=#board active=board
+[PASS] the board is still operable from the keyboard  -> f2
+[PASS] the board opts out of forced-colour recolouring  -> none
+[PASS] light and dark squares stay distinguishable  -> rgb(242, 242, 242) vs rgb(154, 154, 154)
+[PASS] after a flip the structure starts from h1 (black at home)  -> h1,g1,f1,e1,d1,c1,b1,a1
+[PASS] a flip keeps 8 rows of 8 gridcells  -> 8,8,8,8,8,8,8,8
+[PASS] focus survives a flip  -> e2
+[PASS] flipping back restores the original orientation  -> a8,b8,c8,d8,e8,f8,g8,h8
+[PASS] flipping lists all 64 squares exactly once  -> 64 unique
+[PASS] the flip state matches the structure
+[PASS] the last-move arrow is hidden from assistive tech  -> true
+[PASS] no decorative graphics leak into the accessibility tree  -> none
+
+========================================
+  ALL A11Y TESTS PASSED
+========================================
+
+
+============================================================
+  End-to-end scenarios
+============================================================
+
+
+--- 1. Play to checkmate (2-player so both sides are scripted) ---
+[PASS] scholar's mate is checkmate  -> Checkmate! White wins
+[PASS] game marked over
+[PASS] result dialog shown  -> Checkmate! White wins
+[PASS] result title mentions checkmate/win  -> Checkmate! White wins
+[PASS] banner announces the result  -> Checkmate! White wins
+
+--- 2. Pawn promotion ---
+[PASS] promotion pawn shows legal squares  -> a8
+[PASS] promotion dialog opens
+[PASS] promotion offers 4 pieces  -> 4
+[PASS] promotion to knight applied  -> piece=n san=a8=N
+[PASS] promotion dialog closed after choice
+
+--- 3. 2-player pass & play with auto-flip ---
+[PASS] 2-player move accepted in pass & play  -> {"flipped":true,"turn":"b","history":1}
+[PASS] board auto-flips to Black after White moves  -> before=false after=true
+[PASS] Black can select and move after flip  -> legal=2
+[PASS] manual Flip button toggles the board  -> true -> false
+
+--- 4. Offline Pocket Bot fallback ---
+[PASS] falls back to Pocket Bot when engine unavailable  -> pocket
+[PASS] status explains the fallback  -> Playing with the built-in Pocket Bot.
+[PASS] pawn selectable offline  -> {"selected":"e2","legal":["e3","e4"]}
+[PASS] Pocket Bot still replies with a legal move  -> e4 Nf6 | {"hist":["w:e4","b:Nf6"],"turn":"w","playerColor":"w","mode":"computer","busy":false,"kind":"pocket","gameOver":false}
+[PASS] coach evaluation works offline  -> -10
+
+--- 5. Keyboard play ---
+[PASS] Enter selects a piece via keyboard  -> legal=2
+[PASS] arrow keys move the cursor  -> e4
+[PASS] keyboard move e2-e4 played  -> e4
+[PASS] H key requests a hint  -> {"from":"d7","to":"d5"}
+
+--- 6. Resign ---
+[PASS] resign ends the game
+[PASS] resign shows the result dialog  -> Black wins by resignation
+[PASS] resign title is sensible  -> Black wins by resignation
+
+--- 7. Check banner ---
+[PASS] rook shows legal squares  -> a8,a7,a6,a5,a4,a3,a2,b1,c1,d1,e1,f1,g1
+[PASS] position is check after Re1  -> check=true
+[PASS] check banner appears  -> Black is in CHECK! Move the king or block.
+[PASS] checked king square is highlighted  -> squares=1
+
+--- 8. New Game during the engine search ---
+[PASS] the engine really was thinking
+[PASS] a stale reply does not end the new game
+[PASS] the new game is still in the starting position  -> rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+[PASS] no moves were replayed onto the new game  -> history=0
+[PASS] 32 pieces still on the board  -> count=32
+[PASS] no result dialog appeared
+
+--- 9. Concurrent coach review and computer reply ---
+[PASS] 9a normal: the coach gives feedback  -> [{"name":"bubble","t":225},{"name":"move","t":230}]
+[PASS] 9a normal: the computer replies  -> history=2
+[PASS] 9a normal: feedback lands before the reply  -> [{"name":"bubble","t":225},{"name":"move","t":230}]
+[PASS] 9b coach slower: both analyses are in flight at once  -> evaluate:start evaluate:start bestMove:start bestMove:end evaluate:end evaluate:end evaluate:start evaluate:end
+[PASS] 9b coach slower: the bubble precedes the reply  -> [{"name":"bubble","t":559},{"name":"move","t":559}]
+[PASS] 9b coach slower: the reply still lands  -> history=2
+[PASS] 9c reply faster: the reply finished analysing first  -> evaluate:start evaluate:start bestMove:start bestMove:end evaluate:end evaluate:end evaluate:start evaluate:end
+[PASS] 9c reply faster: the bubble STILL precedes the board change  -> [{"name":"bubble","t":655},{"name":"move","t":655}]
+[PASS] 9c reply faster: the reply lands  -> history=2
+[PASS] 9d new game mid-analysis: the new game is still live
+[PASS] 9d new game mid-analysis: still the starting position  -> rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+[PASS] 9d new game mid-analysis: no move was replayed  -> history=0
+[PASS] 9d new game mid-analysis: 32 pieces  -> pieces=32
+[PASS] 9d new game mid-analysis: no result dialog
+[PASS] 9e coach fails: the game carries on (reply applied)  -> history=2
+[PASS] 9e coach fails: the game is not over
+[PASS] 9e coach fails: no result dialog
+[PASS] 9f reply fails: a legal move is still played  -> history=2
+[PASS] 9f reply fails: the game is not over
+
+--- 10. Practice mode drills ---
+[PASS] practice switch reveals the drill picker
+[PASS] difficulty and colour groups hide in practice
+[PASS] a puzzle prompt is shown
+[PASS] resign is disabled in practice
+[PASS] New Game becomes New Puzzle  -> New Puzzle
+[PASS] a free-piece puzzle is on the board for its solving side  -> rnq1kbnr/1pp1pp1p/3P
+[PASS] playing the free capture solves the drill
+[PASS] prompt enters the explanatory review state  -> ✓ Correct! Why it works: The target cannot be safely recaptured.
+[PASS] a success bubble appears  -> Solved!
+[PASS] review state offers Next Puzzle
+[PASS] Next Puzzle loads a fresh puzzle
+[PASS] mate-one puzzle loads  -> 2k5/1ppp4/R7/8/5p2/8
+[PASS] the mating move finishes the game
+[PASS] mate-in-one counted as solved
+[PASS] the banner celebrates  -> Solved!
+
+========================================
+  ALL SCENARIO TESTS PASSED
+========================================
+
+
+============================================================
+  SUMMARY
+============================================================
+  PASS  Worker unit tests
+  PASS  Engine unit tests
+  PASS  Coach unit tests
+  PASS  Drill unit tests
+  PASS  Browser smoke tests
+  PASS  Accessibility tests
+  PASS  End-to-end scenarios
+

@@ -61,6 +61,7 @@ try {
     ['Engine unit tests', 'engine-test.mjs'],
     ['Coach unit tests', 'coach-test.mjs'],
     ['Drill unit tests', 'drills-test.mjs'],
+    ['Service worker checks', 'sw-test.mjs'],
     ['Browser smoke tests', 'smoke-test.mjs'],
     ['Accessibility tests', 'a11y-test.mjs'],
     ['End-to-end scenarios', 'e2e-test.mjs']

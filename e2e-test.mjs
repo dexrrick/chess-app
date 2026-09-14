@@ -686,8 +686,8 @@ console.log('\n--- 10. Practice mode drills ---');
     fen: window.__chessClub.state.chess.fen(),
     puzzle: window.__chessClub.state.puzzle
   }));
-  check('a free-piece puzzle is on the board, White to move',
-    start.puzzle && start.puzzle.drill === 'free-piece' && / w /.test(start.fen),
+  check('a free-piece puzzle is on the board for its solving side',
+    start.puzzle && start.puzzle.drill === 'free-piece' && / [wb] /.test(start.fen),
     start.fen.split(' ')[0].slice(0, 20));
 
   // Play the advertised winning capture.
@@ -701,7 +701,7 @@ console.log('\n--- 10. Practice mode drills ---');
     bubble: [...document.querySelectorAll('.bubble .bubble-title')].pop()?.textContent
   }));
   check('playing the free capture solves the drill', solved.solved);
-  check('prompt announces the solve', /Solved/i.test(solved.text), solved.text.trim());
+  check('prompt enters the explanatory review state', /Correct|Why it works/i.test(solved.text), solved.text.trim());
   check('a success bubble appears', /Solved|Checkmate/i.test(solved.bubble || ''), solved.bubble || '(none)');
 
   check('review state offers Next Puzzle', await pg.$eval('#btn-next-puzzle', (el) => !el.hidden));
@@ -720,7 +720,7 @@ console.log('\n--- 10. Practice mode drills ---');
     const p = window.__chessClub.state.puzzle;
     return { drill: p.drill, target: p.target, san: p.targetSan, fen: window.__chessClub.state.chess.fen() };
   });
-  check('mate-one puzzle loads', m1.drill === 'mate-one' && / w /.test(m1.fen),
+  check('mate-one puzzle loads', m1.drill === 'mate-one' && / [wb] /.test(m1.fen),
     m1.fen.split(' ')[0].slice(0, 20));
   await pg.click(`.square[data-square="${m1.target.from}"]`);
   await new Promise((r) => setTimeout(r, 120));

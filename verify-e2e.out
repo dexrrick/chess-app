@@ -1,0 +1,99 @@
+
+> chess-club@1.0.0 test:e2e
+> node e2e-test.mjs
+
+
+--- 1. Play to checkmate (2-player so both sides are scripted) ---
+[PASS] scholar's mate is checkmate  -> Checkmate! White wins
+[PASS] game marked over
+[PASS] result dialog shown  -> Checkmate! White wins
+[PASS] result title mentions checkmate/win  -> Checkmate! White wins
+[PASS] banner announces the result  -> Checkmate! White wins
+
+--- 2. Pawn promotion ---
+[PASS] promotion pawn shows legal squares  -> a8
+[PASS] promotion dialog opens
+[PASS] promotion offers 4 pieces  -> 4
+[PASS] promotion to knight applied  -> piece=n san=a8=N
+[PASS] promotion dialog closed after choice
+
+--- 3. 2-player pass & play with auto-flip ---
+[PASS] 2-player move accepted in pass & play  -> {"flipped":true,"turn":"b","history":1}
+[PASS] board auto-flips to Black after White moves  -> before=false after=true
+[PASS] Black can select and move after flip  -> legal=2
+[PASS] manual Flip button toggles the board  -> true -> false
+
+--- 4. Offline Pocket Bot fallback ---
+[PASS] falls back to Pocket Bot when engine unavailable  -> pocket
+[PASS] status explains the fallback  -> Playing with the built-in Pocket Bot.
+[PASS] pawn selectable offline  -> {"selected":"e2","legal":["e3","e4"]}
+[PASS] Pocket Bot still replies with a legal move  -> e4 c6 | {"hist":["w:e4","b:c6"],"turn":"w","playerColor":"w","mode":"computer","busy":false,"kind":"pocket","gameOver":false}
+[PASS] coach evaluation works offline  -> 60
+
+--- 5. Keyboard play ---
+[PASS] Enter selects a piece via keyboard  -> legal=2
+[PASS] arrow keys move the cursor  -> e4
+[PASS] keyboard move e2-e4 played  -> e4
+[PASS] H key requests a hint  -> {"from":"h7","to":"h5"}
+
+--- 6. Resign ---
+[PASS] resign ends the game
+[PASS] resign shows the result dialog  -> Black wins by resignation
+[PASS] resign title is sensible  -> Black wins by resignation
+
+--- 7. Check banner ---
+[PASS] rook shows legal squares  -> a8,a7,a6,a5,a4,a3,a2,b1,c1,d1,e1,f1,g1
+[PASS] position is check after Re1  -> check=true
+[PASS] check banner appears  -> Black is in CHECK! Move the king or block.
+[PASS] checked king square is highlighted  -> squares=1
+
+--- 8. New Game during the engine search ---
+[PASS] the engine really was thinking
+[PASS] a stale reply does not end the new game
+[PASS] the new game is still in the starting position  -> rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+[PASS] no moves were replayed onto the new game  -> history=0
+[PASS] 32 pieces still on the board  -> count=32
+[PASS] no result dialog appeared
+
+--- 9. Concurrent coach review and computer reply ---
+[PASS] 9a normal: the coach gives feedback  -> [{"name":"bubble","t":223},{"name":"move","t":229}]
+[PASS] 9a normal: the computer replies  -> history=2
+[PASS] 9a normal: feedback lands before the reply  -> [{"name":"bubble","t":223},{"name":"move","t":229}]
+[PASS] 9b coach slower: both analyses are in flight at once  -> evaluate:start evaluate:start bestMove:start bestMove:end evaluate:end evaluate:end evaluate:start evaluate:end
+[PASS] 9b coach slower: the bubble precedes the reply  -> [{"name":"bubble","t":560},{"name":"move","t":560}]
+[PASS] 9b coach slower: the reply still lands  -> history=2
+[PASS] 9c reply faster: the reply finished analysing first  -> evaluate:start evaluate:start bestMove:start bestMove:end evaluate:end evaluate:end evaluate:start evaluate:end
+[PASS] 9c reply faster: the bubble STILL precedes the board change  -> [{"name":"bubble","t":655},{"name":"move","t":655}]
+[PASS] 9c reply faster: the reply lands  -> history=2
+[PASS] 9d new game mid-analysis: the new game is still live
+[PASS] 9d new game mid-analysis: still the starting position  -> rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+[PASS] 9d new game mid-analysis: no move was replayed  -> history=0
+[PASS] 9d new game mid-analysis: 32 pieces  -> pieces=32
+[PASS] 9d new game mid-analysis: no result dialog
+[PASS] 9e coach fails: the game carries on (reply applied)  -> history=2
+[PASS] 9e coach fails: the game is not over
+[PASS] 9e coach fails: no result dialog
+[PASS] 9f reply fails: a legal move is still played  -> history=2
+[PASS] 9f reply fails: the game is not over
+
+--- 10. Practice mode drills ---
+[PASS] practice switch reveals the drill picker
+[PASS] difficulty and colour groups hide in practice
+[PASS] a puzzle prompt is shown
+[PASS] resign is disabled in practice
+[PASS] New Game becomes New Puzzle  -> New Puzzle
+[PASS] a free-piece puzzle is on the board, White to move  -> r1b2b1r/1pppk2p/p3p3
+[PASS] playing the free capture solves the drill
+[FAIL] prompt announces the solve  -> ✓ Correct! Why it works: The target cannot be safely recaptured.
+[PASS] a success bubble appears  -> Solved!
+[PASS] review state offers Next Puzzle
+[PASS] Next Puzzle loads a fresh puzzle
+[PASS] mate-one puzzle loads  -> k7/pp6/8/8/4p3/Q7/8/
+[PASS] the mating move finishes the game
+[PASS] mate-in-one counted as solved
+[PASS] the banner celebrates  -> Solved!
+
+========================================
+  1 CHECK(S) FAILED
+========================================
+

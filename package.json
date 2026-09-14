@@ -18,6 +18,8 @@
     "test:worker": "node worker-test.mjs",
     "test:engine": "node engine-test.mjs",
     "test:coach": "node coach-test.mjs",
+    "test:drills": "node drills-test.mjs",
+    "test:sw": "node sw-test.mjs",
     "test:a11y": "node a11y-test.mjs",
     "shots": "node shots.mjs",
     "icons": "node scripts/generate-icons.mjs",

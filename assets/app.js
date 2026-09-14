@@ -13,6 +13,10 @@ import { pieceSvg, PIECE_NAMES, PIECE_VALUES } from './src/pieces.js';
 import { Engine, DIFFICULTIES, sleep } from './src/engine.js';
 import { classify, describeMove, describeHint, openingTip, evalText, phaseOf } from './src/coach.js';
 import { DRILL_IDS, DRILL_LABELS, PuzzleScheduler, makePuzzle, isSolved, levelForStreak } from './src/drills.js';
+import { emptyPracticeDrill, loadPracticeProgress, savePracticeProgress } from './src/practice/progress.js';
+import { resetPuzzleSession, firstAttempt, solvedProgress, revealedProgress } from './src/practice/controller.js';
+import { getPracticeHint, getWrongMoveFeedback, getSolvedFeedback, getRevealFeedback } from './src/practice/feedback.js';
+import { computeLevelTransition, selectNextPuzzle, recordMiss, recordSolve, recordReveal } from './src/practice/session.js';
 
 /* ========================================================================== */
 /*  Load chess.js                                                             */
@@ -1321,50 +1325,20 @@ state.busy = false;
 /*  Practice drills                                                           */
 /* ========================================================================== */
 
-const PRAISE = {
-  'free-piece': 'You are spotting hanging pieces like a pro!',
-  'mate-one': 'You are learning to spot checkmating moves!'
-};
-
 const puzzleSeen = new Set();   // FENs already shown this session, so drills stay varied
 const puzzleScheduler = new PuzzleScheduler();
 
 const LEVEL_NAMES = { 1: 'easy', 2: 'hard', 3: 'expert' };
 
-/* Versioned, device-local Practice progress.  It deliberately contains no
- * identity or game history, and storage failures simply leave Practice usable. */
-const PRACTICE_STORAGE_KEY = 'chessclub.practice.v1';
-function emptyPracticeDrill() {
-  return { attempted: 0, solved: 0, solvedWithoutHint: 0, currentStreak: 0, bestStreak: 0, currentLevel: 1 };
-}
-function emptyPracticeProgress() {
-  return { drills: { 'free-piece': emptyPracticeDrill(), 'mate-one': emptyPracticeDrill() } };
-}
-function loadPracticeProgress() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(PRACTICE_STORAGE_KEY));
-    if (!stored || typeof stored !== 'object' || !stored.drills) return emptyPracticeProgress();
-    for (const id of DRILL_IDS) {
-      const value = stored.drills[id];
-      if (!value || typeof value !== 'object') stored.drills[id] = emptyPracticeDrill();
-      else stored.drills[id] = { ...emptyPracticeDrill(), ...value };
-    }
-    return stored;
-  } catch {
-    return emptyPracticeProgress();
-  }
-}
-function savePracticeProgress(progress) {
-  try { localStorage.setItem(PRACTICE_STORAGE_KEY, JSON.stringify(progress)); } catch { /* storage is optional */ }
-}
-const practiceProgress = loadPracticeProgress();
+const practiceProgress = loadPracticeProgress(DRILL_IDS);
 function drillProgress(id = state.drill) { return practiceProgress.drills[id]; }
 
 /** Move the solve streak and, when it crosses a level threshold, level up the
  *  puzzle difficulty and announce it. Streak is session-only on purpose. */
 function bumpStreak(delta) {
-  state.solveStreak = delta === 0 ? 0 : Math.max(0, state.solveStreak + delta);
-  const level = levelForStreak(state.solveStreak);
+  const transition = computeLevelTransition(state.solveStreak, delta, levelForStreak);
+  state.solveStreak = transition.streak;
+  const level = transition.level;
   if (level !== state.drillLevel) {
     state.drillLevel = level;
     if (delta > 0) {
@@ -1374,7 +1348,8 @@ function bumpStreak(delta) {
 }
 
 function newPuzzle() {
-  state.puzzle = makePuzzle(state.Chess, state.drill, { seen: puzzleSeen, scheduler: puzzleScheduler, level: state.drillLevel });
+  const selection = selectNextPuzzle({ Chess: state.Chess, drill: state.drill, level: state.drillLevel, seen: puzzleSeen, scheduler: puzzleScheduler, makePuzzle });
+  state.puzzle = selection.puzzle;
   const p = state.puzzle;
   if (!p) return;
 
@@ -1385,14 +1360,16 @@ function newPuzzle() {
   state.hint = null;
   state.gameOver = false;
   state.history = [];
-  state.solved = false;
-  state.misses = 0;
-  state.puzzleAttempted = false;
+  const session = resetPuzzleSession();
+  state.solved = session.solved;
+  state.misses = session.misses;
+  state.practiceHintStep = session.hintStep;
+  state.puzzleAttempted = session.attempted;
   clearTimeout(state.puzzleTimer);
   cacheEval(null, 0);
   state.busy = false;
   state.flipped = p.sideToMove === 'b'; // solver always sits at the bottom
-  puzzleScheduler.record(p);
+  if (selection.shouldRecord) puzzleScheduler.record(p);
 
   showBanner('');
   renderPuzzlePrompt();
@@ -1406,15 +1383,11 @@ function judgePuzzleMove(move, fenBefore) {
   const p = state.puzzle;
   if (!p) return;
   const progress = drillProgress();
-  if (!state.puzzleAttempted) { progress.attempted++; state.puzzleAttempted = true; savePracticeProgress(practiceProgress); }
+  if (!state.puzzleAttempted) { Object.assign(progress, firstAttempt(progress)); state.puzzleAttempted = true; savePracticeProgress(practiceProgress); }
 
   if (isSolved(state.Chess, p, fenBefore, state.chess, move)) {
     bumpStreak(1);
-    progress.solved++;
-    if (state.practiceHintStep === 0) progress.solvedWithoutHint++;
-    progress.currentStreak++;
-    progress.bestStreak = Math.max(progress.bestStreak, progress.currentStreak);
-    progress.currentLevel = state.drillLevel;
+    Object.assign(progress, solvedProgress(progress, { usedHint: state.practiceHintStep > 0, level: state.drillLevel }));
     savePracticeProgress(practiceProgress);
     renderPracticeProgress();
     state.solved = true;
@@ -1422,23 +1395,22 @@ function judgePuzzleMove(move, fenBefore) {
     showBanner('Solved!', 'good');
     renderPuzzlePrompt();
     updateControls();
-    if (p.drill === 'mate-one') {
-      addBubble({ tier: 'success', title: 'Checkmate!', text: `Brilliant! ${p.targetSan} traps the king. ${PRAISE[p.drill]}` });
-    } else {
-      addBubble({ tier: 'success', title: 'Solved!', text: `You took the ${PIECE_NAMES[move.captured]} — it really was all alone. ${PRAISE[p.drill]}` });
-    }
+    const feedback = getSolvedFeedback(p, PIECE_NAMES[move.captured]);
+    addBubble({ tier: 'success', ...feedback });
     dom.btnNextPuzzle.hidden = false;
+    recordSolve();
     return;
   }
 
   // Wrong idea: take the move straight back and let them try again.
-  state.misses += 1;
+  const miss = recordMiss(state.misses);
+  state.misses = miss.misses;
   state.chess.undo();
   state.history.pop();
   const last = state.history[state.history.length - 1];
   state.lastMove = last ? { from: last.move.from, to: last.move.to } : null;
 
-  if (state.misses >= 3) {
+  if (miss.reveal) {
     revealPuzzleSolution();
     return;
   }
@@ -1446,9 +1418,7 @@ function judgePuzzleMove(move, fenBefore) {
   addBubble({
     tier: 'info',
     title: 'Not quite',
-    text: p.drill === 'mate-one'
-      ? (state.chess.isCheck() ? 'That gives check, but the king still has an escape square.' : 'That move is safe, but it is not checkmate. Start by looking at your checks.')
-      : (move.captured ? 'That capture can be legally recaptured. Look for a clean capture.' : 'Look for an attacked enemy piece with no legal recapture.')
+    text: getWrongMoveFeedback(p, { givesCheck: state.chess.isCheck(), captured: !!move.captured })
   });
 }
 
@@ -1456,9 +1426,9 @@ function revealPuzzleSolution() {
   const p = state.puzzle;
   if (!p || state.solved) return;
   bumpStreak(0);   // solve streak does not survive giving up
+  recordReveal();
   const progress = drillProgress();
-  progress.currentStreak = 0;
-  progress.currentLevel = state.drillLevel;
+  Object.assign(progress, revealedProgress(progress, state.drillLevel));
   savePracticeProgress(practiceProgress);
   renderPracticeProgress();
   try {
@@ -1477,7 +1447,7 @@ function revealPuzzleSolution() {
     showBanner('Here is how!', 'good');
     renderPuzzlePrompt();
     updateControls();
-    addBubble({ tier: 'success', title: 'Solution', move: m.san, text: `${p.hint} ${p.drill === 'mate-one' ? 'That is checkmate!' : 'Remember this pattern — always scan for lonely pieces.'}` });
+    addBubble({ tier: 'success', title: 'Solution', move: m.san, text: getRevealFeedback(p) });
     dom.btnNextPuzzle.hidden = false;
   } catch {
     // never crash the board over a hint; the human can keep trying
@@ -1539,10 +1509,9 @@ async function hint() {
   if (state.mode === 'practice') {
     const p = state.puzzle;
     if (!p) return;
-    const hints = p.hints?.length ? p.hints : [p.hint];
-    const index = Math.min(state.practiceHintStep++, hints.length - 1);
-    state.hint = index >= 1 ? p.target : null;
-    addBubble({ tier: 'info', title: `Hint ${index + 1}`, text: hints[index] });
+    const hint = getPracticeHint(p, state.practiceHintStep++);
+    state.hint = hint.highlight;
+    addBubble({ tier: 'info', title: `Hint ${hint.index + 1}`, text: hint.text });
     renderBoard();
     return;
   }
