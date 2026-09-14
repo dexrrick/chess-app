@@ -78,6 +78,7 @@ mode: 'computer',          // 'computer' | 'human' | 'practice'
   solved: false,             // current puzzle won (board frozen until next)
   misses: 0,                 // wrong tries on the current puzzle
   puzzleTimer: null,         // timeout that advances to the next puzzle
+  practiceHintStep: 0,
   solveStreak: 0,            // puzzles solved in a row (session-only)
   drillLevel: 1,             // 1 easy · 2 hard · 3 expert, auto-scaled by streak
 
@@ -197,6 +198,7 @@ function cacheDom() {
   dom.btnNew = $('#btn-new');
   dom.btnUndo = $('#btn-undo');
   dom.btnHint = $('#btn-hint');
+  dom.btnNextPuzzle = $('#btn-next-puzzle');
   dom.btnFlip = $('#btn-flip');
   dom.btnResign = $('#btn-resign');
   dom.statusLight = $('#status-light');
@@ -592,6 +594,7 @@ function updateControls() {
   dom.btnFlip.disabled = practice;
   dom.btnNew.disabled = false;
   dom.btnNew.textContent = practice ? 'New Puzzle' : 'New Game';
+  if (!practice) dom.btnNextPuzzle.hidden = true;
 }
 
 function renderPuzzlePrompt() {
@@ -605,7 +608,7 @@ function renderPuzzlePrompt() {
   el.hidden = false;
   const p = state.puzzle;
   if (state.solved) {
-    el.textContent = 'Solved! Next puzzle is on its way…';
+    el.textContent = `✓ Correct! Why it works: ${p?.explanation || p?.hint || 'The tactic is sound.'}`;
   } else if (p) {
     const head = p.level ? `Level ${p.level} · ` : '';
     const tail = state.solveStreak >= 3 ? ` · Streak ${state.solveStreak}` : '';
@@ -706,6 +709,7 @@ function selectSquare(name) {
     promotion: typeof m.isPromotion === 'function' ? m.isPromotion() : m.flags.includes('p')
   }));
   state.hint = null;
+  state.practiceHintStep = 0;
   renderBoard();
 }
 
@@ -1262,6 +1266,7 @@ function newGame() {
   state.gameOver = false;
   state.history = [];
   state.solved = false;
+  dom.btnNextPuzzle.hidden = true;
   state.misses = 0;
   clearTimeout(state.puzzleTimer);
   state.puzzle = null;
@@ -1366,7 +1371,7 @@ function judgePuzzleMove(move, fenBefore) {
     } else {
       addBubble({ tier: 'success', title: 'Solved!', text: `You took the ${PIECE_NAMES[move.captured]} — it really was all alone. ${PRAISE[p.drill]}` });
     }
-    state.puzzleTimer = setTimeout(newPuzzle, 3200);
+    dom.btnNextPuzzle.hidden = false;
     return;
   }
 
@@ -1386,8 +1391,8 @@ function judgePuzzleMove(move, fenBefore) {
     tier: 'info',
     title: 'Not quite',
     text: p.drill === 'mate-one'
-      ? 'That move does not finish the game. Look for one that traps the king — maybe a check on the back rank.'
-      : 'That piece was not the free one. Find the enemy piece with nobody protecting it.'
+      ? (state.chess.isCheck() ? 'That gives check, but the king still has an escape square.' : 'That move is safe, but it is not checkmate. Start by looking at your checks.')
+      : (move.captured ? 'That capture can be legally recaptured. Look for a clean capture.' : 'Look for an attacked enemy piece with no legal recapture.')
   });
 }
 
@@ -1412,7 +1417,7 @@ function revealPuzzleSolution() {
     renderPuzzlePrompt();
     updateControls();
     addBubble({ tier: 'success', title: 'Solution', move: m.san, text: `${p.hint} ${p.drill === 'mate-one' ? 'That is checkmate!' : 'Remember this pattern — always scan for lonely pieces.'}` });
-    state.puzzleTimer = setTimeout(newPuzzle, 4000);
+    dom.btnNextPuzzle.hidden = false;
   } catch {
     // never crash the board over a hint; the human can keep trying
     renderAll();
@@ -1471,7 +1476,13 @@ function resign() {
 async function hint() {
   if (!isHumanTurn() || state.busy || state.gameOver) return;
   if (state.mode === 'practice') {
-    revealPuzzleSolution();
+    const p = state.puzzle;
+    if (!p) return;
+    const hints = p.hints?.length ? p.hints : [p.hint];
+    const index = Math.min(state.practiceHintStep++, hints.length - 1);
+    state.hint = index >= 1 ? p.target : null;
+    addBubble({ tier: 'info', title: `Hint ${index + 1}`, text: hints[index] });
+    renderBoard();
     return;
   }
   const generation = state.generation;
@@ -1772,6 +1783,7 @@ async function boot() {
   dom.btnNew.addEventListener('click', newGame);
   dom.btnUndo.addEventListener('click', undo);
   dom.btnHint.addEventListener('click', hint);
+  dom.btnNextPuzzle.addEventListener('click', newPuzzle);
   dom.btnFlip.addEventListener('click', flip);
   dom.btnResign.addEventListener('click', resign);
   $('#promo-cancel').addEventListener('click', closePromotionDialog);

@@ -704,11 +704,10 @@ console.log('\n--- 10. Practice mode drills ---');
   check('prompt announces the solve', /Solved/i.test(solved.text), solved.text.trim());
   check('a success bubble appears', /Solved|Checkmate/i.test(solved.bubble || ''), solved.bubble || '(none)');
 
-  // Auto-advance: a fresh puzzle appears within ~3.5s.
-  await pg.waitForFunction(() =>
-    window.__chessClub.state.solved === false &&
-    window.__chessClub.state.history.length === 0, { timeout: 8000 });
-  check('the next puzzle auto-arrives', true);
+  check('review state offers Next Puzzle', await pg.$eval('#btn-next-puzzle', (el) => !el.hidden));
+  await pg.click('#btn-next-puzzle');
+  await pg.waitForFunction(() => window.__chessClub.state.solved === false && window.__chessClub.state.history.length === 0, { timeout: 8000 });
+  check('Next Puzzle loads a fresh puzzle', true);
 
   // Switch drill to mate-in-one and play the mating move.
   await pg.evaluate(() => {
