@@ -121,6 +121,21 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .alert-banner.alert-check { background: var(--white); color: var(--black); border-color: var(--black); }
 .alert-banner.alert-good { background: var(--grey-100); color: var(--black); }
 
+/* -------------------------- Practice prompt ------------------------------ */
+.puzzle-prompt {
+  border: 2px solid var(--grey-500);
+  border-radius: 12px;
+  padding: 10px 16px;
+  background: var(--white);
+  font-weight: 600;
+  text-align: center;
+  max-width: 420px;
+  width: 100%;
+  box-sizing: border-box;
+  line-height: 1.35;
+  margin: 0;
+}
+
 /* ------------------------------- Layout --------------------------------- */
 .app-main {
   display: grid;
@@ -482,6 +497,8 @@ body:not(.animations-enabled) .spinner { animation-duration: 1.6s; }
 .bubble.tier-mistake { background: var(--grey-200); }
 .bubble.tier-blunder { background: var(--grey-300); border-width: 4px; }
 .bubble.tier-info { background: var(--white); border-color: var(--grey-500); font-size: 0.95rem; }
+.bubble.tier-success { background: var(--black); color: var(--white); border-width: 4px; }
+.bubble.tier-success .bubble-title { color: var(--white); }
 
 .coach-footer { margin-top: 14px; border-top: 2px solid var(--grey-300); padding-top: 12px; }
 

@@ -72,7 +72,10 @@
         Use arrow keys to move a square cursor, Enter to pick up a piece, arrow keys to choose
         a destination, and Enter to drop it. Press Escape to cancel. Press H for a hint.
       </p>
-    </div>
+</div>
+
+    <!-- Practice drill prompt (hidden except in Practice mode) -->
+    <p id="puzzle-prompt" class="puzzle-prompt" hidden></p>
 
     <!-- Primary actions -->
     <div class="action-row" role="group" aria-label="Game actions">
@@ -120,13 +123,17 @@
       <fieldset class="field-group">
         <legend>Who are you playing?</legend>
         <div class="segmented" role="radiogroup" aria-label="Game mode">
-          <label class="seg">
+<label class="seg">
             <input type="radio" name="mode" value="computer" checked />
             <span>Vs Computer</span>
           </label>
           <label class="seg">
             <input type="radio" name="mode" value="human" />
             <span>2 Players</span>
+          </label>
+          <label class="seg">
+            <input type="radio" name="mode" value="practice" />
+            <span>Practice</span>
           </label>
         </div>
       </fieldset>
@@ -149,11 +156,25 @@
         </div>
       </fieldset>
 
-      <fieldset class="field-group" id="colour-group">
+<fieldset class="field-group" id="colour-group">
         <legend>Which colour would you like?</legend>
         <div class="segmented" role="radiogroup" aria-label="Your chess colour">
           <label class="seg"><input type="radio" name="player-colour" value="w" checked /><span>White</span></label>
           <label class="seg"><input type="radio" name="player-colour" value="b" /><span>Black</span></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="field-group" id="drill-group">
+        <legend>Which drill?</legend>
+        <div class="segmented segmented-vertical" role="radiogroup" aria-label="Practice drill">
+          <label class="seg">
+            <input type="radio" name="drill" value="free-piece" checked />
+            <span><strong>Find the free piece</strong><small>Take the piece with nobody protecting it</small></span>
+          </label>
+          <label class="seg">
+            <input type="radio" name="drill" value="mate-one" />
+            <span><strong>Checkmate in one</strong><small>Finish the game in a single move</small></span>
+          </label>
         </div>
       </fieldset>
 

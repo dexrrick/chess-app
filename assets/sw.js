@@ -29,6 +29,7 @@ var PRECACHE = [
   './src/pieces.js',
   './src/engine.js',
   './src/coach.js',
+  './src/drills.js',
   './vendor/chess.js',
   './vendor/stockfish.js',
   './vendor/stockfish.wasm.js',

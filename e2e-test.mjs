@@ -424,7 +424,10 @@ console.log('\n--- 8. New Game during the engine search ---');
   await waitEngine(pg);
 
   // Challenger searches the longest (depth 12 / 1600 ms), and turning the coach
-  // off skips the evaluation phase so we reach the search immediately.
+  // off skips the evaluation phase so we reach the search immediately. The reply
+  // search is pinned to a buttoned-down 800 ms so `busy` stays observable
+  // regardless of how fast the host machine's Stockfish is — otherwise the whole
+  // scenario is just racing the engine.
   await pg.evaluate(() => {
     const diff = document.querySelector('input[name="difficulty"][value="challenger"]');
     diff.checked = true;
@@ -432,6 +435,13 @@ console.log('\n--- 8. New Game during the engine search ---');
     const coach = document.querySelector('#opt-coach');
     coach.checked = false;
     coach.dispatchEvent(new Event('change', { bubbles: true }));
+    const s = window.__chessClub.state;
+    window.__p16 = {
+      restored: false,
+      patch() { s.engine.bestMove = async () => { await new Promise((r) => setTimeout(r, 800)); return { from: 'e7', to: 'e5' }; }; },
+      restore() { delete s.engine.bestMove; this.restored = true; }
+    };
+    window.__p16.patch();
   });
   await new Promise((r) => setTimeout(r, 400));
 
@@ -466,6 +476,7 @@ console.log('\n--- 8. New Game during the engine search ---');
   check('32 pieces still on the board', after.pieces === 32, `count=${after.pieces}`);
   check('no result dialog appeared', !after.resultShown);
 
+  await pg.evaluate(() => window.__p16.restore());
   await pg.close();
 }
 
@@ -637,6 +648,94 @@ console.log('\n--- 9. Concurrent coach review and computer reply ---');
   check('9f reply fails: the game is not over', !st.gameOver);
 
   await pg.evaluate(() => window.__p16.restore());
+  await pg.close();
+}
+
+/* ==========================================================================
+   10. Practice mode: free-piece then mate-in-one
+   ========================================================================== */
+console.log('\n--- 10. Practice mode drills ---');
+{
+  const pg = await newPage();
+  await waitEngine(pg);
+
+  // Switch to Practice mode. Before anything runs, the settings groups must
+  // change over: difficulty/colour disappear, the drill picker appears.
+  await pg.evaluate(() => {
+    const el = document.querySelector('input[name="mode"][value="practice"]');
+    el.checked = true;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 600));
+
+  const groups = await pg.evaluate(() => ({
+    drillShown: getComputedStyle(document.querySelector('#drill-group')).display !== 'none',
+    difficultyHidden: getComputedStyle(document.querySelector('#difficulty-group')).display === 'none',
+    colourHidden: getComputedStyle(document.querySelector('#colour-group')).display === 'none',
+    promptShown: !document.querySelector('#puzzle-prompt').hidden,
+    resignDisabled: document.querySelector('#btn-resign').disabled,
+    newLabel: document.querySelector('#btn-new').textContent
+  }));
+  check('practice switch reveals the drill picker', groups.drillShown);
+  check('difficulty and colour groups hide in practice', groups.difficultyHidden && groups.colourHidden);
+  check('a puzzle prompt is shown', groups.promptShown);
+  check('resign is disabled in practice', groups.resignDisabled);
+  check('New Game becomes New Puzzle', groups.newLabel === 'New Puzzle', groups.newLabel);
+
+  const start = await pg.evaluate(() => ({
+    fen: window.__chessClub.state.chess.fen(),
+    puzzle: window.__chessClub.state.puzzle
+  }));
+  check('a free-piece puzzle is on the board, White to move',
+    start.puzzle && start.puzzle.drill === 'free-piece' && / w /.test(start.fen),
+    start.fen.split(' ')[0].slice(0, 20));
+
+  // Play the advertised winning capture.
+  await pg.click(`.square[data-square="${start.puzzle.target.from}"]`);
+  await new Promise((r) => setTimeout(r, 120));
+  await pg.click(`.square[data-square="${start.puzzle.target.to}"]`);
+  await pg.waitForFunction(() => window.__chessClub.state.solved === true, { timeout: 10000 });
+  const solved = await pg.evaluate(() => ({
+    solved: window.__chessClub.state.solved,
+    text: document.querySelector('#puzzle-prompt').textContent,
+    bubble: [...document.querySelectorAll('.bubble .bubble-title')].pop()?.textContent
+  }));
+  check('playing the free capture solves the drill', solved.solved);
+  check('prompt announces the solve', /Solved/i.test(solved.text), solved.text.trim());
+  check('a success bubble appears', /Solved|Checkmate/i.test(solved.bubble || ''), solved.bubble || '(none)');
+
+  // Auto-advance: a fresh puzzle appears within ~3.5s.
+  await pg.waitForFunction(() =>
+    window.__chessClub.state.solved === false &&
+    window.__chessClub.state.history.length === 0, { timeout: 8000 });
+  check('the next puzzle auto-arrives', true);
+
+  // Switch drill to mate-in-one and play the mating move.
+  await pg.evaluate(() => {
+    const el = document.querySelector('input[name="drill"][value="mate-one"]');
+    el.checked = true;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 400));
+  const m1 = await pg.evaluate(() => {
+    const p = window.__chessClub.state.puzzle;
+    return { drill: p.drill, target: p.target, san: p.targetSan, fen: window.__chessClub.state.chess.fen() };
+  });
+  check('mate-one puzzle loads', m1.drill === 'mate-one' && / w /.test(m1.fen),
+    m1.fen.split(' ')[0].slice(0, 20));
+  await pg.click(`.square[data-square="${m1.target.from}"]`);
+  await new Promise((r) => setTimeout(r, 120));
+  await pg.click(`.square[data-square="${m1.target.to}"]`);
+  await pg.waitForFunction(() => window.__chessClub.state.solved === true, { timeout: 10000 });
+  const m1After = await pg.evaluate(() => ({
+    solved: window.__chessClub.state.solved,
+    mate: window.__chessClub.state.chess.isCheckmate(),
+    banner: document.querySelector('#alert-banner').textContent
+  }));
+  check('the mating move finishes the game', m1After.mate);
+  check('mate-in-one counted as solved', m1After.solved);
+  check('the banner celebrates', /Solved/i.test(m1After.banner), m1After.banner);
+
   await pg.close();
 }
 

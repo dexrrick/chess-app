@@ -12,6 +12,7 @@
 import { pieceSvg, PIECE_NAMES, PIECE_VALUES } from './src/pieces.js';
 import { Engine, DIFFICULTIES, sleep } from './src/engine.js';
 import { classify, describeMove, describeHint, openingTip, evalText, phaseOf } from './src/coach.js';
+import { DRILL_IDS, DRILL_LABELS, makePuzzle, isSolved } from './src/drills.js';
 
 /* ========================================================================== */
 /*  Load chess.js                                                             */
@@ -62,15 +63,21 @@ const state = {
   chess: null,
   engine: null,
 
-  mode: 'computer',          // 'computer' | 'human'
+mode: 'computer',          // 'computer' | 'human' | 'practice'
   difficulty: 'beginner',
   playerColor: 'w',          // human colour in vs-computer
+  drill: 'free-piece',       // active practice drill
 
   flipped: false,
   autoFlip: true,
   coachOn: true,
   animations: false,
   sound: false,
+
+  puzzle: null,              // current practice puzzle ({drill, fen, goal, ...})
+  solved: false,             // current puzzle won (board frozen until next)
+  misses: 0,                 // wrong tries on the current puzzle
+  puzzleTimer: null,         // timeout that advances to the next puzzle
 
   selected: null,            // square name of the currently selected piece
   legalTargets: [],          // [{to, capture}]
@@ -106,14 +113,15 @@ const PREFS_KEY = 'chessclub.prefs.v1';
 
 function savePrefs() {
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({
+localStorage.setItem(PREFS_KEY, JSON.stringify({
       mode: state.mode,
       difficulty: state.difficulty,
       playerColor: state.playerColor,
       autoFlip: state.autoFlip,
       coachOn: state.coachOn,
       animations: state.animations,
-      sound: state.sound
+      sound: state.sound,
+      drill: state.drill
     }));
   } catch { /* storage may be unavailable; ignore */ }
 }
@@ -128,8 +136,9 @@ function loadPrefs() {
     if (p.playerColor === 'w' || p.playerColor === 'b') state.playerColor = p.playerColor;
     if (typeof p.autoFlip === 'boolean') state.autoFlip = p.autoFlip;
     if (typeof p.coachOn === 'boolean') state.coachOn = p.coachOn;
-    if (typeof p.animations === 'boolean') state.animations = p.animations;
+if (typeof p.animations === 'boolean') state.animations = p.animations;
     if (typeof p.sound === 'boolean') state.sound = p.sound;
+    if (DRILL_IDS.includes(p.drill)) state.drill = p.drill;
   } catch { /* ignore */ }
 }
 
@@ -192,11 +201,13 @@ function cacheDom() {
   dom.statusText = $('#status-text');
   dom.difficultyGroup = $('#difficulty-group');
   dom.colourGroup = $('#colour-group');
-  dom.promotionDialog = $('#promotion-dialog');
+dom.promotionDialog = $('#promotion-dialog');
   dom.promoChoices = $('#promo-choices');
   dom.resultDialog = $('#result-dialog');
   dom.resultTitle = $('#result-title');
   dom.resultText = $('#result-text');
+  dom.puzzlePrompt = $('#puzzle-prompt');
+  dom.drillGroup = $('#drill-group');
 }
 
 /* ========================================================================== */
@@ -461,9 +472,15 @@ function renderCaptures() {
   }
 const order = { q: 0, r: 1, b: 2, n: 3, p: 4 };
 
-  // Determine who sits at the top.
+// Determine who sits at the top.
   let topColor, bottomColor, topName, bottomName;
-  if (state.mode === 'human') {
+  if (state.mode === 'practice') {
+    // The solver always plays the winning side (White) from the bottom.
+    topColor = 'b';
+    bottomColor = 'w';
+    topName = 'Puzzle';
+    bottomName = 'You';
+  } else if (state.mode === 'human') {
     topColor = state.flipped ? 'w' : 'b';
     bottomColor = otherColor(topColor);
     topName = colorName(topColor);
@@ -514,6 +531,12 @@ function renderMoveList() {
 }
 
 function renderEval() {
+  if (state.mode === 'practice') {
+    // No engine evaluation in drills — reuse the meter to show the goal.
+    dom.evalFill.style.width = '50%';
+    dom.evalLabel.textContent = state.solved ? 'Solved!' : `Drill: ${DRILL_LABELS[state.drill]}`;
+    return;
+  }
   const cp = state.evalCp;
   const clamped = Math.max(-800, Math.min(800, cp));
   const pct = 50 + (clamped / 800) * 50;
@@ -557,13 +580,32 @@ function setBusy(isBusy, text = 'Thinking…') {
 
 function updateControls() {
   const turn = state.chess.turn();
+  const practice = state.mode === 'practice';
   const myTurn = state.mode === 'computer'
     ? turn === state.playerColor
     : true;
-  dom.btnUndo.disabled = state.history.length === 0 || state.busy;
-  dom.btnHint.disabled = state.busy || state.gameOver || !myTurn;
-  dom.btnResign.disabled = state.gameOver || state.busy;
+  dom.btnUndo.disabled = state.history.length === 0 || state.busy || practice;
+  dom.btnHint.disabled = state.busy || state.gameOver || !myTurn || (practice && state.solved);
+  dom.btnResign.disabled = state.gameOver || state.busy || practice;
+  dom.btnFlip.disabled = practice;
   dom.btnNew.disabled = false;
+  dom.btnNew.textContent = practice ? 'New Puzzle' : 'New Game';
+}
+
+function renderPuzzlePrompt() {
+  const el = dom.puzzlePrompt;
+  if (!el) return;
+  if (state.mode !== 'practice') {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+  el.hidden = false;
+  if (state.solved) {
+    el.textContent = 'Solved! Next puzzle is on its way…';
+  } else {
+    el.textContent = state.puzzle ? state.puzzle.caption : 'Preparing a puzzle…';
+  }
 }
 
 function renderAll() {
@@ -572,6 +614,7 @@ function renderAll() {
   renderMoveList();
   renderEval();
   renderStatus();
+  renderPuzzlePrompt();
   updateControls();
 }
 
@@ -612,6 +655,7 @@ function formatMd(s) {
 function isHumanTurn() {
   if (state.gameOver) return false;
   if (state.mode === 'human') return true;
+  if (state.mode === 'practice') return !state.solved && !state.busy;
   return state.chess.turn() === state.playerColor;
 }
 
@@ -664,6 +708,8 @@ function clearSelection() {
 }
 
 async function attemptMove(from, to, promotion) {
+  if (state.mode === 'practice' && state.solved) return;
+
   const legal = state.chess.moves({ square: from, verbose: true });
   const candidates = legal.filter((m) => m.to === to);
 
@@ -703,11 +749,16 @@ async function attemptMove(from, to, promotion) {
   move.captured ? sfx.capture() : sfx.move();
   renderAll();
 
-  if (state.chess.isCheck() && !state.chess.isGameOver()) {
+if (state.chess.isCheck() && !state.chess.isGameOver()) {
     setTimeout(() => sfx.check(), 120);
   }
 
   // ---- post-move work ----
+  if (state.mode === 'practice') {
+    judgePuzzleMove(move, fenBefore);
+    return;
+  }
+
   if (state.chess.isGameOver()) {
     finishGame();
     return;
@@ -1203,6 +1254,10 @@ function newGame() {
   state.cursor = 'e2';
   state.gameOver = false;
   state.history = [];
+  state.solved = false;
+  state.misses = 0;
+  clearTimeout(state.puzzleTimer);
+  state.puzzle = null;
   cacheEval(null, 0);        // no known evaluation yet; recomputed on first use
 state.busy = false;
   state.flipped = state.mode === 'computer' && state.playerColor === 'b';
@@ -1213,6 +1268,12 @@ state.busy = false;
   dom.moveList.innerHTML = '';
   dom.moveCount.textContent = '0';
   showBanner('');
+  renderPuzzlePrompt();
+
+  if (state.mode === 'practice') {
+    newPuzzle();
+    return;
+  }
 
   addBubble({
     tier: 'info',
@@ -1225,6 +1286,108 @@ state.busy = false;
 
   if (state.mode === 'computer' && state.chess.turn() !== state.playerColor) {
     computerMove();
+  }
+}
+
+/* ========================================================================== */
+/*  Practice drills                                                           */
+/* ========================================================================== */
+
+const PRAISE = {
+  'free-piece': 'You are spotting hanging pieces like a pro!',
+  'mate-one': 'You are learning to spot checkmating moves!'
+};
+
+function newPuzzle() {
+  state.puzzle = makePuzzle(state.Chess, state.drill);
+  const p = state.puzzle;
+  if (!p) return;
+
+  state.chess = new state.Chess(p.fen);
+  state.selected = null;
+  state.legalTargets = [];
+  state.lastMove = null;
+  state.hint = null;
+  state.gameOver = false;
+  state.history = [];
+  state.solved = false;
+  state.misses = 0;
+  clearTimeout(state.puzzleTimer);
+  cacheEval(null, 0);
+  state.busy = false;
+  state.flipped = false;          // solver (White) always sits at the bottom
+
+  showBanner('');
+  renderPuzzlePrompt();
+  addBubble({ tier: 'info', title: DRILL_LABELS[state.drill], text: p.goal });
+  renderAll();
+  updateEngineDifficulty();
+}
+
+function judgePuzzleMove(move, fenBefore) {
+  const p = state.puzzle;
+  if (!p) return;
+
+  if (isSolved(state.Chess, p, fenBefore, state.chess, move)) {
+    state.solved = true;
+    sfx.win();
+    showBanner('Solved!', 'good');
+    renderPuzzlePrompt();
+    updateControls();
+    if (p.drill === 'mate-one') {
+      addBubble({ tier: 'success', title: 'Checkmate!', text: `Brilliant! ${p.targetSan} traps the king. ${PRAISE[p.drill]}` });
+    } else {
+      addBubble({ tier: 'success', title: 'Solved!', text: `You took the ${PIECE_NAMES[move.captured]} — it really was all alone. ${PRAISE[p.drill]}` });
+    }
+    state.puzzleTimer = setTimeout(newPuzzle, 3200);
+    return;
+  }
+
+  // Wrong idea: take the move straight back and let them try again.
+  state.misses += 1;
+  state.chess.undo();
+  state.history.pop();
+  const last = state.history[state.history.length - 1];
+  state.lastMove = last ? { from: last.move.from, to: last.move.to } : null;
+
+  if (state.misses >= 3) {
+    revealPuzzleSolution();
+    return;
+  }
+  renderAll();
+  addBubble({
+    tier: 'info',
+    title: 'Not quite',
+    text: p.drill === 'mate-one'
+      ? 'That move does not finish the game. Look for one that traps the king — maybe a check on the back rank.'
+      : 'That piece was not the free one. Find the enemy piece with nobody protecting it.'
+  });
+}
+
+function revealPuzzleSolution() {
+  const p = state.puzzle;
+  if (!p || state.solved) return;
+  try {
+    const t = p.target;
+    const m = state.chess.move({ from: t.from, to: t.to, promotion: 'q' });
+    state.lastMove = { from: m.from, to: m.to };
+    state.history.push({
+      san: m.san,
+      fenBefore: p.fen,
+      fenAfter: state.chess.fen(),
+      color: m.color,
+      move: m
+    });
+    if (m.captured) sfx.capture();
+    state.solved = true;
+    showBanner('Here is how!', 'good');
+    renderPuzzlePrompt();
+    updateControls();
+    addBubble({ tier: 'success', title: 'Solution', move: m.san, text: `${p.hint} ${p.drill === 'mate-one' ? 'That is checkmate!' : 'Remember this pattern — always scan for lonely pieces.'}` });
+    state.puzzleTimer = setTimeout(newPuzzle, 4000);
+  } catch {
+    // never crash the board over a hint; the human can keep trying
+    renderAll();
   }
 }
 
@@ -1279,6 +1442,10 @@ function resign() {
 
 async function hint() {
   if (!isHumanTurn() || state.busy || state.gameOver) return;
+  if (state.mode === 'practice') {
+    revealPuzzleSolution();
+    return;
+  }
   const generation = state.generation;
   setBusy(true, 'Looking for a good move…');
   try {
@@ -1350,12 +1517,19 @@ function updateEngineDifficulty() {
   if (state.engine) {
     state.engine.setDifficulty(state.difficulty).catch(() => {});
   }
-  if (state.mode === 'computer') {
+  const practice = state.mode === 'practice';
+  if (practice) {
+    dom.difficultyGroup.style.display = 'none';
+    dom.colourGroup.style.display = 'none';
+    dom.drillGroup.style.display = '';
+  } else if (state.mode === 'computer') {
     dom.difficultyGroup.style.display = '';
     dom.colourGroup.style.display = '';
+    dom.drillGroup.style.display = 'none';
   } else {
     dom.difficultyGroup.style.display = 'none';
     dom.colourGroup.style.display = 'none';
+    dom.drillGroup.style.display = 'none';
   }
 }
 
@@ -1386,13 +1560,23 @@ function bindSettings() {
     });
   });
 
-  document.querySelectorAll('input[name="player-colour"]').forEach((el) => {
+document.querySelectorAll('input[name="player-colour"]').forEach((el) => {
     el.checked = el.value === state.playerColor;
     el.addEventListener('change', () => {
       if (!el.checked || state.mode !== 'computer') return;
       state.playerColor = el.value;
       savePrefs();
       newGame();
+    });
+  });
+
+  document.querySelectorAll('input[name="drill"]').forEach((el) => {
+    el.checked = el.value === state.drill;
+    el.addEventListener('change', () => {
+      if (!el.checked || state.mode !== 'practice') return;
+      state.drill = el.value;
+      savePrefs();
+      newPuzzle();
     });
   });
 
