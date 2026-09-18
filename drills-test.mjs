@@ -25,6 +25,10 @@ import {
   levelForStreak,
   PuzzleScheduler
 } from './assets/src/drills.js';
+import { emptyPracticeDrill, emptyPracticeProgress, loadPracticeProgress, savePracticeProgress, PRACTICE_STORAGE_KEY } from './assets/src/practice/progress.js';
+import { resetPuzzleSession, firstAttempt, solvedProgress, revealedProgress } from './assets/src/practice/controller.js';
+import { computeLevelTransition, computeAdaptiveLevelTransition, selectNextPuzzle, recordMiss, recordSolve, recordReveal } from './assets/src/practice/session.js';
+import { getPracticeHint, getWrongMoveFeedback, getSolvedFeedback, getRevealFeedback } from './assets/src/practice/feedback.js';
 
 let failures = 0;
 function check(name, ok, detail = '') {
@@ -327,6 +331,246 @@ function hasLure(c) {
     const move = c.move(p.targetSan);
     check(`diverse puzzle ${p.id} remains a valid mate`, !!move && c.isCheckmate());
   }
+}
+
+/* ---- 14. Free-Piece 30-puzzle simulation proves scheduler bug is eliminated ---- */
+{
+  const scheduler = new PuzzleScheduler();
+  const seen = new Set();
+  const puzzles = [];
+  let fallbacks = 0;
+  const fens = new Set();
+  const motifs = new Set();
+  const sides = { w: 0, b: 0 };
+
+  for (let i = 0; i < 30; i++) {
+    const p = makePuzzle(Chess, 'free-piece', { rng: lcg(3000 + i), scheduler, seen });
+    check(`FP sim #${i} returned a puzzle`, !!p);
+    if (!p) continue;
+    if (p.id.startsWith('free-fallback-')) fallbacks++;
+    puzzles.push(p);
+    fens.add(p.fen);
+    motifs.add(p.motif);
+    sides[p.sideToMove] = (sides[p.sideToMove] || 0) + 1;
+    scheduler.record(p);
+
+    const c = new Chess(p.fen);
+    const fenBefore = c.fen();
+    const move = c.move({ from: p.target.from, to: p.target.to });
+    check(`FP sim #${i} (${p.id}) solution is legal capture`, !!move && !!move.captured);
+    check(`FP sim #${i} is judged solved`, isSolved(Chess, p, fenBefore, c, move));
+    check(`FP sim #${i} has 4 progressive hints`, Array.isArray(p.hints) && p.hints.length === 4);
+    check(`FP sim #${i} has explanation`, typeof p.explanation === 'string' && p.explanation.length > 20);
+    check(`FP sim #${i} has rich metadata`, typeof p.attackerPiece === 'string' && typeof p.targetPiece === 'string' && typeof p.targetSquare === 'string');
+  }
+
+  check('FP 30-puzzle simulation has ZERO fallbacks (scheduler bug eliminated)', fallbacks === 0, `fallbacks=${fallbacks}/30`);
+  check('FP 30-puzzle simulation has high unique FEN rate (>= 25 distinct)', fens.size >= 25, `unique=${fens.size}/30`);
+  check('FP 30-puzzle simulation has balanced White and Black sides', sides.w >= 10 && sides.b >= 10, `w=${sides.w}, b=${sides.b}`);
+  check('FP 30-puzzle simulation exhibits rich tactical motif variety (>= 6)', motifs.size >= 6, [...motifs].join(', '));
+  check('FP 30-puzzle simulation has no consecutive identical motifs', puzzles.every((p, i) => !i || p.motif !== puzzles[i - 1].motif));
+}
+
+/* ---- 15. Mate-in-One 30-puzzle simulation across all 8 mating families ---- */
+{
+  const scheduler = new PuzzleScheduler();
+  const seen = new Set();
+  const puzzles = [];
+  const motifs = new Set();
+  const sides = { w: 0, b: 0 };
+
+  for (let i = 0; i < 30; i++) {
+    const p = makePuzzle(Chess, 'mate-one', { rng: lcg(4000 + i), scheduler, seen, level: 2 });
+    check(`Mate sim #${i} returned a puzzle`, !!p);
+    if (!p) continue;
+    puzzles.push(p);
+    motifs.add(p.motif);
+    sides[p.sideToMove] = (sides[p.sideToMove] || 0) + 1;
+    scheduler.record(p);
+
+    const c = new Chess(p.fen);
+    const mates = matingMoves(c);
+    check(`Mate sim #${i} (${p.motif}) has exactly one mating move`, mates.length === 1, mates.join(','));
+    const fenBefore = c.fen();
+    const move = c.move(p.targetSan);
+    check(`Mate sim #${i} solution mates`, !!move && c.isCheckmate());
+    check(`Mate sim #${i} is judged solved`, isSolved(Chess, p, fenBefore, c, move));
+    check(`Mate sim #${i} has 4 progressive hints`, Array.isArray(p.hints) && p.hints.length === 4);
+    check(`Mate sim #${i} has explanation`, typeof p.explanation === 'string' && p.explanation.length > 20);
+    if (p.motif === 'queen-knight') {
+      check(`Mate sim #${i} explanation uses current board squares`,
+        p.explanation.includes(p.sideToMove === 'b' ? 'b4' : 'g5') && p.explanation.includes(p.target.to));
+    }
+  }
+
+  check('Mate 30-puzzle simulation covers diverse mating families (>= 7)', motifs.size >= 7, [...motifs].join(', '));
+  check('Mate 30-puzzle simulation has balanced White and Black sides', sides.w >= 10 && sides.b >= 10, `w=${sides.w}, b=${sides.b}`);
+  check('Mate 30-puzzle simulation has no consecutive identical motifs', puzzles.every((p, i) => !i || p.motif !== puzzles[i - 1].motif));
+}
+
+/* ---- 16. Conservative adaptive difficulty transitions & anti-bouncing ---- */
+{
+  // Level 1: requires >= 6 attempts with >= 5 clean solves to promote
+  const l1Start = computeAdaptiveLevelTransition({ currentLevel: 1, recentResults: [{ solved: true, clean: true }], streak: 1, delta: 1 });
+  check('L1 single clean solve remains at L1', l1Start.level === 1 && l1Start.streak === 2);
+
+  const fiveClean = Array(5).fill({ solved: true, clean: true });
+  const l1Almost = computeAdaptiveLevelTransition({ currentLevel: 1, recentResults: fiveClean, streak: 5, delta: 1 });
+  check('L1 with 5 results remains at L1 (requires 6 results)', l1Almost.level === 1);
+  const legacyStreak = computeAdaptiveLevelTransition({ currentLevel: 1, recentResults: fiveClean, streak: 5, delta: 1, levelForStreak });
+  check('legacy streak callback cannot bypass the six-result window', legacyStreak.level === 1);
+
+  const sixClean = Array(6).fill({ solved: true, clean: true });
+  const l1Promote = computeAdaptiveLevelTransition({ currentLevel: 1, recentResults: sixClean, streak: 6, delta: 1 });
+  check('L1 with 6 clean solves promotes to L2', l1Promote.level === 2 && l1Promote.leveledUp === true);
+
+  // Level 2 hysteresis: single failure resets streak to 0 but does NOT bounce back to L1
+  const l2AfterOneFail = computeAdaptiveLevelTransition({
+    currentLevel: 2,
+    recentResults: [...sixClean, { solved: false, clean: false }],
+    streak: 6,
+    delta: 0
+  });
+  check('L2 single failure resets streak to 0 but stays at L2 (no level bouncing)',
+    l2AfterOneFail.level === 2 && l2AfterOneFail.streak === 0);
+
+  // Level 2 promotion to Level 3 requires >= 7 attempts with >= 6 clean solves
+  const sevenClean = Array(7).fill({ solved: true, clean: true });
+  const l2Promote = computeAdaptiveLevelTransition({ currentLevel: 2, recentResults: sevenClean, streak: 7, delta: 1 });
+  check('L2 with 7 clean solves promotes to L3', l2Promote.level === 3 && l2Promote.leveledUp === true);
+
+  // Level 3 hysteresis: single failure resets streak to 0 but stays at L3
+  const l3AfterOneFail = computeAdaptiveLevelTransition({
+    currentLevel: 3,
+    recentResults: [...sevenClean, { solved: false, clean: false }],
+    streak: 7,
+    delta: 0
+  });
+  check('L3 single failure resets streak to 0 but stays at L3 (no level bouncing)',
+    l3AfterOneFail.level === 3 && l3AfterOneFail.streak === 0);
+
+  // Level 3 demotion to L2 requires repeated failures (>= 3 fails and streak === 0)
+  const l3WithRepeatedFails = [
+    { solved: true, clean: true },
+    { solved: false, clean: false },
+    { solved: true, clean: true },
+    { solved: false, clean: false },
+    { solved: false, clean: false },
+    { solved: true, clean: true }
+  ];
+  const l3Demote = computeAdaptiveLevelTransition({ currentLevel: 3, recentResults: l3WithRepeatedFails, streak: 0, delta: 0 });
+  check('L3 with >= 3 failures demotes to L2', l3Demote.level === 2);
+
+  // Level 2 demotion to L1 requires repeated failures (>= 4 fails and streak === 0)
+  const l2WithRepeatedFails = [
+    { solved: false, clean: false },
+    { solved: true, clean: true },
+    { solved: false, clean: false },
+    { solved: false, clean: false },
+    { solved: false, clean: false },
+    { solved: true, clean: true }
+  ];
+  const l2Demote = computeAdaptiveLevelTransition({ currentLevel: 2, recentResults: l2WithRepeatedFails, streak: 0, delta: 0 });
+  check('L2 with >= 4 failures demotes to L1', l2Demote.level === 1);
+
+  // Fallback compatibility with levelForStreak
+  const fallbackL1 = computeLevelTransition(0, 1, levelForStreak);
+  check('computeLevelTransition fallback: streak 1 -> L1', fallbackL1.level === 1 && fallbackL1.streak === 1);
+  const fallbackL2 = computeLevelTransition(2, 1, levelForStreak);
+  check('computeLevelTransition fallback: streak 3 -> L2', fallbackL2.level === 2 && fallbackL2.leveledUp === true);
+}
+
+/* ---- 17. Wrong-move check detection, progressive hints & feedback ---- */
+{
+  // Wrong move that gives check vs wrong move that does not give check
+  const matePuzzle = { drill: 'mate-one', hint: 'Deliver mate in one.' };
+  const checkFeedback = getWrongMoveFeedback(matePuzzle, { givesCheck: true, captured: false });
+  check('givesCheck=true gives escape-square feedback',
+    checkFeedback === 'That gives check, but the king still has an escape square.');
+  const nonCheckFeedback = getWrongMoveFeedback(matePuzzle, { givesCheck: false, captured: false });
+  check('givesCheck=false gives look-for-checks feedback',
+    nonCheckFeedback === 'That move is safe, but it is not checkmate. Start by looking at your checks.');
+
+  // Free-piece wrong move: recapture vs quiet
+  const fpPuzzle = { drill: 'free-piece', hint: 'Find the free piece.' };
+  const recapturableFeedback = getWrongMoveFeedback(fpPuzzle, { givesCheck: false, captured: true });
+  check('captured=true gives recapture feedback',
+    recapturableFeedback === 'That capture can be legally recaptured. Look for a clean capture.');
+  const quietFeedback = getWrongMoveFeedback(fpPuzzle, { givesCheck: false, captured: false });
+  check('captured=false gives unattacked feedback',
+    quietFeedback === 'Look for an attacked enemy piece with no legal recapture.');
+
+  // Progressive hints
+  const samplePuzzle = {
+    drill: 'mate-one',
+    hints: ['Hint 1: principle', 'Hint 2: board area', 'Hint 3: piece clue', 'Hint 4: exact move'],
+    target: { from: 'e1', to: 'e8' },
+    explanation: 'Re8# delivers checkmate because the rook cuts off rank 8 and the king cannot escape.'
+  };
+
+  const h0 = getPracticeHint(samplePuzzle, 0);
+  check('Hint step 0 has null highlight', h0.highlight === null && h0.index === 0);
+  const h1 = getPracticeHint(samplePuzzle, 1);
+  check('Hint step 1 has null highlight', h1.highlight === null && h1.index === 1);
+  const h2 = getPracticeHint(samplePuzzle, 2);
+  check('Hint step 2 highlights attacker square only',
+    h2.highlight && h2.highlight.from === 'e1' && h2.highlight.to === undefined);
+  const h3 = getPracticeHint(samplePuzzle, 3);
+  check('Hint step 3 highlights full target (from and to)',
+    h3.highlight && h3.highlight.from === 'e1' && h3.highlight.to === 'e8');
+
+  // Solved and Reveal feedback integrate explanation
+  const solvedFb = getSolvedFeedback(samplePuzzle, null);
+  check('getSolvedFeedback includes puzzle explanation', solvedFb.text.includes(samplePuzzle.explanation));
+  const revealFb = getRevealFeedback(samplePuzzle);
+  check('getRevealFeedback returns puzzle explanation', revealFb === samplePuzzle.explanation);
+}
+
+/* ---- 18. Backward-compatible LocalStorage hydration & controller tracking ---- */
+{
+  if (!globalThis.localStorage) {
+    const store = new Map();
+    globalThis.localStorage = {
+      getItem: (k) => store.get(k) || null,
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+      clear: () => store.clear()
+    };
+  }
+
+  // Pre-populate with legacy format without recentResults
+  const legacyData = {
+    drills: {
+      'free-piece': { attempted: 15, solved: 12, solvedWithoutHint: 10, currentStreak: 4, bestStreak: 7, currentLevel: 2 },
+      'mate-one': { attempted: 8, solved: 6, solvedWithoutHint: 5, currentStreak: 2, bestStreak: 3, currentLevel: 1 }
+    }
+  };
+  localStorage.setItem(PRACTICE_STORAGE_KEY, JSON.stringify(legacyData));
+
+  const hydrated = loadPracticeProgress(DRILL_IDS);
+  check('hydrated legacy free-piece preserves attempted', hydrated.drills['free-piece'].attempted === 15);
+  check('hydrated legacy free-piece preserves solved', hydrated.drills['free-piece'].solved === 12);
+  check('hydrated legacy free-piece preserves streak', hydrated.drills['free-piece'].currentStreak === 4);
+  check('hydrated legacy free-piece adds recentResults array', Array.isArray(hydrated.drills['free-piece'].recentResults));
+  check('hydrated legacy mate-one adds recentResults array', Array.isArray(hydrated.drills['mate-one'].recentResults));
+
+  // Test controller functions append and cap at 8
+  let drillProg = hydrated.drills['free-piece'];
+  for (let i = 0; i < 10; i++) {
+    drillProg = solvedProgress(drillProg, { usedHint: i % 2 !== 0, misses: 0, level: 2 });
+  }
+  check('solvedProgress caps recentResults at 8', drillProg.recentResults.length === 8);
+  check('solvedProgress tracks clean flag accurately (hint used -> clean false)',
+    drillProg.recentResults[drillProg.recentResults.length - 1].clean === false);
+  const cleanSolve = solvedProgress(drillProg, { usedHint: false, misses: 0, level: 2 });
+  check('solved without hint tracks clean === true',
+    cleanSolve.recentResults[cleanSolve.recentResults.length - 1].clean === true);
+
+  drillProg = revealedProgress(drillProg, 2);
+  check('revealedProgress records false for solved and clean',
+    drillProg.recentResults[drillProg.recentResults.length - 1].solved === false &&
+    drillProg.recentResults[drillProg.recentResults.length - 1].clean === false);
+  check('revealedProgress resets currentStreak to 0', drillProg.currentStreak === 0);
 }
 
 console.log('\n========================================');

@@ -30,25 +30,55 @@ export const DRILL_LABELS = {
   'mate-one': 'Checkmate in one'
 };
 
-/** A small, session-local diversity policy.  It deliberately tracks tactical
- * characteristics rather than FENs: transformed templates may have unique
- * positions while teaching exactly the same idea. */
+export const FREE_PIECE_MOTIFS = [
+  'pawn-capture',
+  'knight-capture',
+  'bishop-long-range',
+  'rook-file',
+  'rook-rank',
+  'queen-diagonal',
+  'queen-line',
+  'multiple-captures',
+  'best-value-target',
+  'decoy-capture',
+  'hidden-attacker',
+  'high-value-target',
+  'clean-capture'
+];
+
+/** A resilient session-local diversity scheduler. Tracks tactical
+ *  characteristics to prevent repetitive positions while avoiding starvation. */
 export class PuzzleScheduler {
-  constructor(recent = []) { this.recent = recent.slice(-5); this.used = new Set(); }
-  allows(puzzle) {
+  constructor(recent = []) {
+    this.recent = recent.slice(-6);
+    this.used = new Set();
+  }
+
+  allows(puzzle, options = {}) {
     if (!puzzle || this.used.has(puzzle.id)) return false;
     const last = this.recent[this.recent.length - 1];
-    if (last && last.motif === puzzle.motif) return false;
-    if (this.recent.filter((p) => p.motif === puzzle.motif).length >= 2) return false;
-    if (last && last.sideToMove === puzzle.sideToMove) return false;
+    const { relaxSide = false, relaxMotif = false, relaxFrequency = false } = options;
+
+    if (!relaxMotif && last && last.motif === puzzle.motif) return false;
+    if (!relaxFrequency && this.recent.filter((p) => p.motif === puzzle.motif).length >= 2) return false;
+    if (!relaxSide && last && last.sideToMove === puzzle.sideToMove) return false;
     return true;
   }
+
   record(puzzle) {
     this.used.add(puzzle.id);
-    this.recent.push({ id: puzzle.id, motif: puzzle.motif, sideToMove: puzzle.sideToMove,
-      solutionPiece: puzzle.solutionPiece, targetSquare: puzzle.target?.to });
-    this.recent = this.recent.slice(-5);
+    this.recent.push({
+      id: puzzle.id,
+      motif: puzzle.motif,
+      sideToMove: puzzle.sideToMove,
+      solutionPiece: puzzle.solutionPiece,
+      attackerPiece: puzzle.attackerPiece,
+      targetPiece: puzzle.targetPiece,
+      targetSquare: puzzle.target?.to
+    });
+    this.recent = this.recent.slice(-6);
   }
+
   chooseMotif(motifs) {
     const counts = new Map(motifs.map((m) => [m, this.recent.filter((p) => p.motif === m).length]));
     const eligible = motifs.filter((m) => m !== this.recent[this.recent.length - 1]?.motif);
@@ -145,23 +175,138 @@ function describeFreePiece(captured, to, color) {
   };
 }
 
-/** Free-piece difficulty knobs. Pricier targets and best-piece precision scale up. */
+/** Classify the tactical/visual signature of a free piece puzzle. */
+export function detectFreePieceMotif(Chess, chess, best, picks = [], difficulty = 1) {
+  if (!best) return 'clean-capture';
+  const attacker = chess.get(best.from);
+  if (!attacker) return 'clean-capture';
+  const targetType = best.captured;
+  const targetVal = best.value || PIECE_VALUES[targetType] || 0;
+
+  const fromF = best.from.charCodeAt(0) - 97, fromR = parseInt(best.from[1], 10);
+  const toF = best.to.charCodeAt(0) - 97, toR = parseInt(best.to[1], 10);
+  const df = Math.abs(fromF - toF), dr = Math.abs(fromR - toR);
+  const dist = Math.max(df, dr);
+
+  const allCaptures = chess.moves({ verbose: true }).filter((m) => m.captured);
+  const defendedDecoys = allCaptures.filter((m) => hasImmediateRecapture(Chess, chess, m));
+
+  // Multiple clean captures
+  if (picks.length >= 2) {
+    if (picks[0].value > picks[1].value) return 'best-value-target';
+    return 'multiple-captures';
+  }
+
+  // High value target (rook/queen) taken by minor or pawn
+  if (targetVal >= 5 && (attacker.type === 'p' || attacker.type === 'n' || attacker.type === 'b')) {
+    return 'high-value-target';
+  }
+
+  // Tempting defended decoys
+  if (defendedDecoys.length >= 2 && difficulty >= 2) {
+    return 'decoy-capture';
+  }
+
+  // Distant attacks
+  if (dist >= 4 && (attacker.type === 'b' || attacker.type === 'r' || attacker.type === 'q')) {
+    if (attacker.type === 'b') return 'bishop-long-range';
+    if (attacker.type === 'r') return df === 0 ? 'rook-file' : 'rook-rank';
+    if (attacker.type === 'q') return df === dr ? 'queen-diagonal' : 'queen-line';
+    return 'hidden-attacker';
+  }
+
+  // Piece-specific geometry
+  if (attacker.type === 'p') return 'pawn-capture';
+  if (attacker.type === 'n') return 'knight-capture';
+  if (attacker.type === 'b') return 'bishop-long-range';
+  if (attacker.type === 'r') return df === 0 ? 'rook-file' : 'rook-rank';
+  if (attacker.type === 'q') return df === dr ? 'queen-diagonal' : 'queen-line';
+
+  if (targetVal >= 5) return 'high-value-target';
+  return 'clean-capture';
+}
+
+function makeFreePieceExplanation(attackerType, targetType, targetSq, attackerSq, san, opponentColor, defendedDecoys = []) {
+  const aName = PIECE_NAMES[attackerType] || 'piece';
+  const tName = PIECE_NAMES[targetType] || 'piece';
+  const opp = opponentColor === 'w' ? 'White' : 'Black';
+  let text = `The ${aName} on ${attackerSq} safely captures the ${tName} on ${targetSq} with ${san}. ${opp} has no defenders nearby to take it back, winning a free ${tName}!`;
+  if (defendedDecoys.length > 0) {
+    const decoy = defendedDecoys[0];
+    const dName = PIECE_NAMES[decoy.captured] || 'piece';
+    text += ` Taking the ${dName} on ${decoy.to} looked tempting, but it was defended and would have been recaptured.`;
+  }
+  return text;
+}
+
+function makeFreePieceHints(targetSq, attackerSq, targetType, attackerType) {
+  const tName = PIECE_NAMES[targetType] || 'piece';
+  const aName = PIECE_NAMES[attackerType] || 'piece';
+  const fileChar = targetSq[0];
+  const rankNum = parseInt(targetSq[1], 10);
+  const side = (fileChar <= 'd') ? 'queenside (a–d files)' : 'kingside (e–h files)';
+  const area = (rankNum >= 5) ? 'in enemy territory' : 'near the center or home ranks';
+
+  return [
+    'Look at every enemy piece and ask: "Is anyone protecting it?"',
+    `Look carefully at the ${side}, especially ${area}.`,
+    `An enemy ${tName} is left completely unprotected!`,
+    `Use your ${aName} on ${attackerSq} to capture the ${tName} on ${targetSq}!`
+  ];
+}
+
+/** Free-piece difficulty knobs. */
 const FREE_LEVELS = {
   1: { value: 3, needBest: false, plies: [4, 8], maxGames: 60 },
   2: { value: 4, needBest: true, plies: [4, 10], maxGames: 60 },
   3: { value: 4, needBest: true, plies: [5, 11], maxGames: 90, shopForTwo: true }
 };
 
-/**
- * Play a few random legal moves and keep the first position in which White can
- * take an undefended enemy piece worth grabbing. `seen` (a Set of FENs) keeps a
- * session from repeating a puzzle; `level` scales the target value, the clutter
- * (deeper plies) and whether the best grab is required.
- */
+/** Curated FENs across Easy, Hard, and Expert. */
 const CURATED_FREE_FENS = [
- 'rBbqkb1r/1p1ppp2/6p1/pNp2n1p/3P3P/1P6/P1P1PPP1/R2QKBNR b KQkq - 0 7','r2qkb1r/pbppp2p/Qp3ppn/8/5P2/2P5/PP1PP1PP/RNB1KBNR w KQkq - 1 7','rnq1kbnr/1pp1pp1p/3P2p1/p7/4P3/6P1/PPbP1P1P/RNBQK1NR w KQkq - 1 8','rnbqkbnr/1p6/3pNpp1/p1p4p/P5P1/1P5N/2PPPP1P/R1BQKBR1 b Qkq - 0 9','rnbk1b1r/p1Nppp1p/1p5q/2p3p1/1P2n2P/4PN2/P1PP1PP1/R1BQKBR1 w Q - 2 9','1rbqkb2/1ppnppp1/p1n5/3p2Nr/3P2Pp/2P2P2/PP1NP2P/R1BQKB1R w K - 3 10','rnbq1rk1/bp1p1ppp/p1p5/4pn2/6P1/NP1P1P1P/P1P1P1BR/R1B1QK2 w - - 1 11','r1b2b1r/1pppk2p/p3p3/n4p1n/1PPP3q/N3P1p1/P4PPP/R1BQKB1R w K - 0 13','rn1k1b1r/pp1bp2p/6pn/q1p2p1Q/BP1p3P/N3P2R/P1PP1PP1/R1BK2N1 w - - 0 11','rnbqk2r/3pppb1/Pp3n1B/2p4p/2P3p1/P2P3N/4PPPP/RN1QKB1R w KQkq - 3 10','r2q1bnr/p1p1pk2/n4p1p/3p2p1/P1pPb1P1/RPN5/1B1QPP1P/4KBNR b K - 5 11','rn1qkB1r/2pb1p1p/3pp1pn/pp6/2PP4/P6N/1P2PPPP/RN1QKB1R w KQkq - 0 8','rn2kbnr/p1p2pp1/bp1pp2p/P3P3/q7/3B1P2/1PPP2P1/RNBQ1KNR w kq - 2 9','r1b1kb1r/3qpp1p/pp1p1n2/n1p1N3/5p1P/1PPP2PR/P2QP3/RNBK1B2 b kq - 1 11','1nbqk1nr/3pp1bp/r4pp1/p1P1N3/p3P3/P2P3P/1P3PP1/1RBQKB1R b Kk - 0 13','r1b2bnr/pppkppp1/2n4p/N1Pp1P2/P1Q5/3B4/RP1P1PPP/1NB1K1R1 b - - 2 14','r1bqkb1r/p1ppp3/Bp4pn/5p1p/P5PP/2N1P3/1PPP1P2/R1BQK1NR b Qkq - 2 8','rnb1kbnr/pp1ppppp/8/2p5/2P2P2/3PB2P/PP2P1q1/RN2KBNR b KQkq - 0 7','r1b1k1nr/pp1ppp1p/B1p2P1b/2n1q1p1/8/4PN2/PPPP2PP/RNBQK1R1 w Qkq - 7 8','r3kbnr/pp1b2p1/2q1ppnp/PPpp1P2/2B5/4P2P/1BPPNRP1/RN1Q2K1 b - - 0 14','rnq1kbn1/4p1p1/2p2p1r/Pp5p/2p2P2/N2Q2PP/P2PP1B1/R1BbK1NR w KQq - 4 13','r1b2b1r/ppkq1p1p/2ppp3/5Pp1/4n2N/3QP2P/PP1P2P1/RNBK1BR1 b - - 3 13','rnbqk1nr/p1p5/1p1pp3/5ppp/3N2PP/b1N5/PPPPPP2/R1BQKB1R w KQkq - 0 8','r1b2bnr/1p1p1kpN/1q3p1p/pnp1p3/2N1P2P/1PQ5/P1PP1PP1/1RB1KB1R w K - 7 14','3r1bnr/pppkq2p/3p2p1/4ppP1/1nP1PPb1/P6P/1P1PQ1B1/RNB1K1NR w KQ - 1 11','rn2kb1r/p5p1/1ppB1n1p/3P1p2/5P1N/P4b2/RPP1B1PP/1N1QK2R b Kkq - 0 13','1nb1k1nr/2p3p1/rp1p1p1p/8/pbPPp1P1/4P2N/PP1Q1PRP/RNBK1B2 w k - 0 12','r1b1kbr1/pp1pp1p1/1N3n2/2p2pBp/3PP1n1/5PP1/P1P3P1/R2QKBNR b KQq - 4 13','r1b1kb1r/1ppn1p2/p2p2pn/4p1qp/P2B1N1P/NP1P2P1/2PKPP2/R3QB1R b kq - 2 14','1nbqk1nr/1p1pp1Bp/8/r1p2pp1/p2P4/2N1P3/PPP2PPP/R2QKBNR w KQk - 2 8'
+  'rBbqkb1r/1p1ppp2/6p1/pNp2n1p/3P3P/1P6/P1P1PPP1/R2QKBNR b KQkq - 0 7',
+  'r2qkb1r/pbppp2p/Qp3ppn/8/5P2/2P5/PP1PP1PP/RNB1KBNR w KQkq - 1 7',
+  'rnq1kbnr/1pp1pp1p/3P2p1/p7/4P3/6P1/PPbP1P1P/RNBQK1NR w KQkq - 1 8',
+  'rnbqkbnr/1p6/3pNpp1/p1p4p/P5P1/1P5N/2PPPP1P/R1BQKBR1 b Qkq - 0 9',
+  'rnbk1b1r/p1Nppp1p/1p5q/2p3p1/1P2n2P/4PN2/P1PP1PP1/R1BQKBR1 w Q - 2 9',
+  '1rbqkb2/1ppnppp1/p1n5/3p2Nr/3P2Pp/2P2P2/PP1NP2P/R1BQKB1R w K - 3 10',
+  'rnbq1rk1/bp1p1ppp/p1p5/4pn2/6P1/NP1P1P1P/P1P1P1BR/R1B1QK2 w - - 1 11',
+  'r1b2b1r/1pppk2p/p3p3/n4p1n/1PPP3q/N3P1p1/P4PPP/R1BQKB1R w K - 0 13',
+  'rn1k1b1r/pp1bp2p/6pn/q1p2p1Q/BP1p3P/N3P2R/P1PP1PP1/R1BK2N1 w - - 0 11',
+  'rnbqk2r/3pppb1/Pp3n1B/2p4p/2P3p1/P2P3N/4PPPP/RN1QKB1R w KQkq - 3 10',
+  'r2q1bnr/p1p1pk2/n4p1p/3p2p1/P1pPb1P1/RPN5/1B1QPP1P/4KBNR b K - 5 11',
+  'rn1qkB1r/2pb1p1p/3pp1pn/pp6/2PP4/P6N/1P2PPPP/RN1QKB1R w KQkq - 0 8',
+  'rn2kbnr/p1p2pp1/bp1pp2p/P3P3/q7/3B1P2/1PPP2P1/RNBQ1KNR w kq - 2 9',
+  'r1b1kb1r/3qpp1p/pp1p1n2/n1p1N3/5p1P/1PPP2PR/P2QP3/RNBK1B2 b kq - 1 11',
+  '1nbqk1nr/3pp1bp/r4pp1/p1P1N3/p3P3/P2P3P/1P3PP1/1RBQKB1R b Kk - 0 13',
+  'r1b2bnr/pppkppp1/2n4p/N1Pp1P2/P1Q5/3B4/RP1P1PPP/1NB1K1R1 b - - 2 14',
+  'r1bqkb1r/p1ppp3/Bp4pn/5p1p/P5PP/2N1P3/1PPP1P2/R1BQK1NR b Qkq - 2 8',
+  'rnb1kbnr/pp1ppppp/8/2p5/2P2P2/3PB2P/PP2P1q1/RN2KBNR b KQkq - 0 7',
+  'r1b1k1nr/pp1ppp1p/B1p2P1b/2n1q1p1/8/4PN2/PPPP2PP/RNBQK1R1 w Qkq - 7 8',
+  'r3kbnr/pp1b2p1/2q1ppnp/PPpp1P2/2B5/4P2P/1BPPNRP1/RN1Q2K1 b - - 0 14',
+  'rnq1kbn1/4p1p1/2p2p1r/Pp5p/2p2P2/N2Q2PP/P2PP1B1/R1BbK1NR w KQq - 4 13',
+  'r1b2b1r/ppkq1p1p/2ppp3/5Pp1/4n2N/3QP2P/PP1P2P1/RNBK1BR1 b - - 3 13',
+  'rnbqk1nr/p1p5/1p1pp3/5ppp/3N2PP/b1N5/PPPPPP2/R1BQKB1R w KQkq - 0 8',
+  'r1b2bnr/1p1p1kpN/1q3p1p/pnp1p3/2N1P2P/1PQ5/P1PP1PP1/1RB1KB1R w K - 7 14',
+  '3r1bnr/pppkq2p/3p2p1/4ppP1/1nP1PPb1/P6P/1P1PQ1B1/RNB1K1NR w KQ - 1 11',
+  'rn2kb1r/p5p1/1ppB1n1p/3P1p2/5P1N/P4b2/RPP1B1PP/1N1QK2R b Kkq - 0 13',
+  '1nb1k1nr/2p3p1/rp1p1p1p/8/pbPPp1P1/4P2N/PP1Q1PRP/RNBK1B2 w k - 0 12',
+  'r1b1kbr1/pp1pp1p1/1N3n2/2p2pBp/3PP1n1/5PP1/P1P3P1/R2QKBNR b KQq - 4 13',
+  'r1b1kb1r/1ppn1p2/p2p2pn/4p1qp/P2B1N1P/NP1P2P1/2PKPP2/R3QB1R b kq - 2 14',
+  '1nbqk1nr/1p1pp1Bp/8/r1p2pp1/p2P4/2N1P3/PPP2PPP/R2QKBNR w KQk - 2 8',
+  '3r2k1/pp3ppp/8/4b3/8/7P/PPP2PP1/4R1K1 w - - 0 1',
+  '6k1/5ppp/8/8/R4n2/7P/5PP1/6K1 w - - 0 1',
+  '7r/5k2/8/8/8/7P/1B3PP1/6K1 w - - 0 1',
+  '6k1/5ppp/3b4/8/8/7P/5PP1/3Q2K1 w - - 0 1',
+  '6k1/5pp1/8/7p/r7/7P/5PP1/3Q2K1 w - - 0 1',
+  '6k1/5ppp/8/1b3b2/3N4/7P/5PP1/6K1 w - - 0 1'
 ];
-const FREE_PIECE_TEMPLATES = CURATED_FREE_FENS.map((fen, i) => ({ id: `free-base-${i + 1}`, fen, motif: 'clean-capture', difficulty: i < 10 ? 1 : i < 20 ? 2 : 3 }));
+
+export const FREE_PIECE_TEMPLATES = CURATED_FREE_FENS.map((fen, i) => ({
+  id: `free-base-${i + 1}`,
+  fen,
+  difficulty: i < 24 ? 1 : i < 30 ? 2 : 3
+}));
 
 function freePuzzleFromTemplate(Chess, template, sideToMove, level, mirrored = false) {
   let fen = sideToMove === 'b' ? invertPuzzleFen(template.fen) : template.fen;
@@ -171,54 +316,142 @@ function freePuzzleFromTemplate(Chess, template, sideToMove, level, mirrored = f
   const best = picks[0];
   if (!best) return null;
   const cfg = FREE_LEVELS[level] || FREE_LEVELS[1];
+  const attacker = chess.get(best.from);
+  if (!attacker) return null;
+
+  const allCaptures = chess.moves({ verbose: true }).filter((m) => m.captured);
+  const defendedDecoys = allCaptures.filter((m) => hasImmediateRecapture(Chess, chess, m));
+  const motif = detectFreePieceMotif(Chess, chess, best, picks, template.difficulty || level);
+  const explanation = makeFreePieceExplanation(attacker.type, best.captured, best.to, best.from, best.san, other(chess.turn()), defendedDecoys);
+  const hints = makeFreePieceHints(best.to, best.from, best.captured, attacker.type);
+
   return {
-    id: `${template.id}-${sideToMove}`, drill: 'free-piece', fen, level, difficulty: level,
-    motif: template.motif, sideToMove, orientation: sideToMove, solutionPiece: chess.get(best.from).type,
-    needBest: cfg.needBest || template.difficulty >= 2, bestValue: best.value, solutions: picks,
-    target: { from: best.from, to: best.to }, targetSan: best.san,
-    explanation: 'The target cannot be safely recaptured.', hints: [],
+    id: `${template.id}-${sideToMove}${mirrored ? '-m' : ''}`,
+    drill: 'free-piece',
+    fen,
+    level,
+    difficulty: level,
+    motif,
+    attackerPiece: attacker.type,
+    attackerSquare: best.from,
+    targetPiece: best.captured,
+    targetSquare: best.to,
+    targetValue: best.value,
+    alternativeCaptures: picks.slice(1).map((p) => ({ from: p.from, to: p.to, san: p.san, captured: p.captured, value: p.value })),
+    defendedDecoys: defendedDecoys.map((d) => ({ from: d.from, to: d.to, san: d.san, captured: d.captured })),
+    sideToMove,
+    orientation: sideToMove,
+    solutionPiece: attacker.type,
+    needBest: cfg.needBest || template.difficulty >= 2,
+    bestValue: best.value,
+    solutions: picks,
+    target: { from: best.from, to: best.to },
+    targetSan: best.san,
+    explanation,
+    hints,
     ...describeFreePiece(best.captured, best.to, other(chess.turn()))
   };
 }
 
-/** Curated templates are selected before their safe colour transformation;
- * random legal walks are intentionally no longer part of this drill. */
+/** Curated templates with resilient multi-pass scheduling. */
 export function freePiecePuzzle(Chess, { rng = Math.random, seen, level = 1, scheduler } = {}) {
-  const pool = FREE_PIECE_TEMPLATES.filter((p) => p.difficulty <= level);
+  let pool = FREE_PIECE_TEMPLATES.filter((p) => p.difficulty <= level);
+  if (pool.length < 24) pool = FREE_PIECE_TEMPLATES;
   const start = Math.floor(rng() * pool.length);
-  for (let n = 0; n < pool.length * 4; n++) {
-    const template = pool[(start + n) % pool.length];
-    for (const side of n % 2 ? ['b', 'w'] : ['w', 'b']) {
-      const p = freePuzzleFromTemplate(Chess, template, side, level, n % 4 >= 2);
-      if (!p || (seen && seen.has(p.fen)) || (scheduler && !scheduler.allows(p))) continue;
-      if (seen) seen.add(p.fen);
-      return p;
+
+  const passes = [
+    { relaxSide: false, relaxMotif: false, relaxFrequency: false },
+    { relaxSide: true, relaxMotif: false, relaxFrequency: false },
+    { relaxSide: true, relaxMotif: false, relaxFrequency: true },
+    { relaxSide: true, relaxMotif: true, relaxFrequency: true }
+  ];
+
+  for (const relax of passes) {
+    for (let i = 0; i < pool.length; i++) {
+      const template = pool[(start + i) % pool.length];
+      for (const mirrored of [false, true]) {
+        for (const side of (i + (mirrored ? 1 : 0)) % 2 ? ['b', 'w'] : ['w', 'b']) {
+          const p = freePuzzleFromTemplate(Chess, template, side, level, mirrored);
+          if (!p || (seen && seen.has(p.fen))) continue;
+          if (scheduler && !scheduler.allows(p, relax)) continue;
+          if (seen) seen.add(p.fen);
+          return p;
+        }
+      }
     }
   }
+
+  // Safety pass: search full pool if restricted tier exhausted
+  if (pool.length < FREE_PIECE_TEMPLATES.length) {
+    for (const relax of passes) {
+      for (let i = 0; i < FREE_PIECE_TEMPLATES.length; i++) {
+        const template = FREE_PIECE_TEMPLATES[(start + i) % FREE_PIECE_TEMPLATES.length];
+        for (const mirrored of [false, true]) {
+          for (const side of ['w', 'b']) {
+            const p = freePuzzleFromTemplate(Chess, template, side, level, mirrored);
+            if (!p || (seen && seen.has(p.fen))) continue;
+            if (scheduler && !scheduler.allows(p, relax)) continue;
+            if (seen) seen.add(p.fen);
+            return p;
+          }
+        }
+      }
+    }
+  }
+
   return null;
 }
 
-/** A few guaranteed positions if the random generator somehow finds nothing. */
+/** Guaranteed varied positions if the generator somehow finds nothing. */
 export const FREE_PIECE_FALLBACK = [
   '6k1/5ppp/r7/1P6/8/8/8/6K1 w - - 0 1',                 // bxa6 wins a rook
-  '6k1/5ppp/8/8/6n1/7P/8/6K1 w - - 0 1'                  // hxg4 wins a knight
+  '6k1/5ppp/8/8/6n1/7P/8/6K1 w - - 0 1',                  // hxg4 wins a knight
+  '3r2k1/pp3ppp/8/4b3/8/7P/PPP2PP1/4R1K1 w - - 0 1',     // Rxe5 wins a bishop down e-file
+  '6k1/5ppp/8/5b2/3N4/7P/5PP1/6K1 w - - 0 1',             // Nxf5 wins a bishop
+  '6k1/5pp1/8/7n/8/7P/5PP1/3Q2K1 w - - 0 1',             // Qxh5 wins a knight
+  '6k1/5ppp/8/r7/1P6/7P/5PP1/6K1 w - - 0 1',             // bxa5 wins a rook
+  '1k2r3/8/8/8/8/8/4N3/1K6 b - - 0 1',                    // Rxe2 wins a knight
+  '1k6/8/8/8/8/4b3/3R4/1K6 b - - 0 1'                     // Bxd2 wins a rook
 ];
 
-export function fallbackFreePiece(Chess, { rng = Math.random, level = 1 } = {}) {
+export function fallbackFreePiece(Chess, { rng = Math.random, level = 1, seen } = {}) {
   const cfg = FREE_LEVELS[level] || FREE_LEVELS[1];
-  const fen = FREE_PIECE_FALLBACK[Math.floor(rng() * FREE_PIECE_FALLBACK.length)];
+  const candidates = seen ? FREE_PIECE_FALLBACK.filter((f) => !seen.has(f)) : FREE_PIECE_FALLBACK;
+  const pool = candidates.length > 0 ? candidates : FREE_PIECE_FALLBACK;
+  const fen = pool[Math.floor(rng() * pool.length)];
+  if (seen) seen.add(fen);
   const chess = new Chess(fen);
   const picks = findHangingCaptures(Chess, chess);
   const best = picks[0];
+  const attacker = chess.get(best.from);
+  const motif = detectFreePieceMotif(Chess, chess, best, picks, level);
+  const explanation = makeFreePieceExplanation(attacker.type, best.captured, best.to, best.from, best.san, other(chess.turn()), []);
+  const hints = makeFreePieceHints(best.to, best.from, best.captured, attacker.type);
+
   return {
+    id: `free-fallback-${fen.split(' ')[0]}`,
     drill: 'free-piece',
     fen,
     level,
+    difficulty: level,
+    motif,
+    attackerPiece: attacker.type,
+    attackerSquare: best.from,
+    targetPiece: best.captured,
+    targetSquare: best.to,
+    targetValue: best.value,
+    alternativeCaptures: picks.slice(1).map((p) => ({ from: p.from, to: p.to, san: p.san, captured: p.captured, value: p.value })),
+    defendedDecoys: [],
+    sideToMove: chess.turn(),
+    orientation: chess.turn(),
+    solutionPiece: attacker.type,
     needBest: cfg.needBest,
     bestValue: best.value,
     solutions: picks,
     target: { from: best.from, to: best.to },
     targetSan: best.san,
+    explanation,
+    hints,
     ...describeFreePiece(best.captured, best.to, other(chess.turn()))
   };
 }
@@ -356,11 +589,67 @@ const scaffoldDiagonalShutter = (rng) => {
   return { board, lane };
 };
 
+/** 5. Double-rook ladder: one rook seals rank 7, second rook mates on rank 8. */
+const scaffoldDoubleRook = (rng) => {
+  const board = {};
+  const kf = 2 + Math.floor(rng() * 4);
+  board[sqName(kf, 7)] = 'k';
+  board['a7'] = 'R';
+  const lane = 7;
+  const starts = ['h1', 'h2', 'h3', 'h4', 'h5'];
+  board[starts[Math.floor(rng() * starts.length)]] = 'R';
+  board['b1'] = 'K';
+  return { board, lane };
+};
+
+/** 6. Queen-knight support: knight on g5 defends h7, queen delivers Qxh7#. */
+const scaffoldQueenKnight = (rng) => {
+  const board = {};
+  board['h8'] = 'k';
+  board['g7'] = 'p';
+  board['h7'] = 'p';
+  board['c8'] = 'r';
+  board['g5'] = 'N';
+  const qStarts = ['e4', 'd3'];
+  board[qStarts[Math.floor(rng() * qStarts.length)]] = 'Q';
+  board['g1'] = 'K';
+  return { board, lane: null };
+};
+
+/** 7. Pawn-cover: pawn on f6 covers g7/g8, heavy piece slides down e-file to e8#. */
+const scaffoldPawnCover = (rng) => {
+  const board = {};
+  board['h8'] = 'k';
+  board['h7'] = 'p';
+  board['f6'] = 'P';
+  board['a8'] = 'n';
+  const lane = 4;
+  const starts = ['e1', 'e2', 'e3'];
+  board[starts[Math.floor(rng() * starts.length)]] = rng() < 0.5 ? 'Q' : 'R';
+  board['b1'] = 'K';
+  return { board, lane };
+};
+
+/** 8. Arabian mate: knight on f6 defends h7 and covers g8, rook mates on h7. */
+const scaffoldArabianMate = (rng) => {
+  const board = {};
+  board['h8'] = 'k';
+  board['f6'] = 'N';
+  const rStarts = ['a7', 'b7', 'c7', 'd7'];
+  board[rStarts[Math.floor(rng() * rStarts.length)]] = 'R';
+  board['b1'] = 'K';
+  return { board, lane: null };
+};
+
 const MATE_FAMILIES = {
   backRank: scaffoldBackRank,
   cornerBox: scaffoldCornerBox,
   knightCage: scaffoldKnightCage,
-  diagonal: scaffoldDiagonalShutter
+  diagonal: scaffoldDiagonalShutter,
+  doubleRook: scaffoldDoubleRook,
+  queenKnight: scaffoldQueenKnight,
+  pawnCover: scaffoldPawnCover,
+  arabianMate: scaffoldArabianMate
 };
 
 /** Verify a composed board is a quiet (no side in check, White to move) legal
@@ -418,12 +707,66 @@ function decorateMateBoard(board, lane, rng, range, isGood) {
   }
 }
 
-function puzzleFromMate(fen, mates, level, motif = 'back-rank') {
+function makeMateExplanation(motif, first, sideToMove) {
+  switch (motif) {
+    case 'back-rank':
+      return `${first.san} slides to the back rank! The enemy king is trapped behind its own pawn wall with nowhere to run.`;
+    case 'queen-touch-support':
+      return `${first.san} lands right next to the king! Your king defends your queen, so the enemy king cannot capture it or escape.`;
+    case 'smothered-knight':
+      return `${first.san} is a smothered checkmate! The knight leaps over the defense, and the king is trapped in the corner by its own pieces.`;
+    case 'bishop-battery':
+      return `${first.san} delivers checkmate! Your bishop seals off the escape diagonal while your heavy piece attacks the back rank.`;
+    case 'double-rook':
+      return `${first.san} finishes the two-rook ladder mate! One rook cuts off the rank below, and the other delivers the final blow.`;
+    case 'queen-knight':
+      return `${first.san} delivers checkmate! Your knight on ${sideToMove === 'b' ? 'b4' : 'g5'} defends the queen on ${first.to} and shuts down the corner.`;
+    case 'pawn-cover':
+      return `${first.san} finishes the game! Your advanced pawn locks down the escape squares while your heavy piece checks on the back rank.`;
+    case 'arabian-mate':
+      return `${first.san} is the legendary Arabian mate! Your knight and rook work together: the knight defends the rook and covers the escape square.`;
+    default:
+      return `${first.san} delivers checkmate! The king has no safe squares and no piece can block or capture.`;
+  }
+}
+
+function makeMateHints(first, fen, Chess) {
+  let checkCount = 0;
+  if (Chess && fen) {
+    try {
+      const c = new Chess(fen);
+      for (const m of c.moves({ verbose: true })) {
+        c.move(m);
+        if (c.inCheck()) checkCount++;
+        c.undo();
+      }
+    } catch { /* ignore */ }
+  }
+  const pieceName = /^[KQRBN]/.test(first.san) ? PIECE_NAMES[first.san[0].toLowerCase()] : 'pawn';
+
+  return [
+    'Start by looking at every move that gives check.',
+    checkCount > 1
+      ? `There ${checkCount === 2 ? 'are two moves' : `are ${checkCount} moves`} that give check — but only one is checkmate!`
+      : 'Look for a forcing move that puts the king in direct danger.',
+    `The checkmating move uses your ${pieceName}.`,
+    `Move your ${pieceName} from ${first.from} to ${first.to} (${first.san})!`
+  ];
+}
+
+function puzzleFromMate(fen, mates, level, motif = 'back-rank', Chess = null) {
   const first = mates[0];
   const sideToMove = fen.split(' ')[1];
+  const explanation = makeMateExplanation(motif, first, sideToMove);
+  const hints = makeMateHints(first, fen, Chess);
+
   return {
     id: `${motif}-${sideToMove}-${fen.split(' ')[0]}`,
-    drill: 'mate-one', motif, sideToMove, orientation: sideToMove, difficulty: level,
+    drill: 'mate-one',
+    motif,
+    sideToMove,
+    orientation: sideToMove,
+    difficulty: level,
     fen,
     level,
     solutionPiece: /^[KQRBN]/.test(first.san) ? first.san[0].toLowerCase() : 'p',
@@ -431,10 +774,10 @@ function puzzleFromMate(fen, mates, level, motif = 'back-rank') {
     target: { from: first.from, to: first.to },
     targetSan: first.san,
     goal: 'Deliver checkmate in ONE move!',
-    caption: 'The black king is nearly trapped — one move finishes the job.',
+    caption: 'The enemy king is in danger — one move finishes the game!',
     hint: `Play ${first.san} and the king will have no safe square to run to.`,
-    hints: ['Start by looking at every check.', `The mating piece starts on ${first.from}.`],
-    explanation: 'The mating move checks the king and covers every available escape square.'
+    hints,
+    explanation
   };
 }
 
@@ -449,22 +792,31 @@ function curatedMateOne(Chess, rng, seen, level) {
     if (seen) seen.add(p.fen);
     _lastMateIndex = i;
     const mv = new Chess(p.fen).move(p.solution);
-    return puzzleFromMate(p.fen, [{ from: mv.from, to: mv.to, san: p.solution }], level, 'curated-mate');
+    return puzzleFromMate(p.fen, [{ from: mv.from, to: mv.to, san: p.solution }], level, 'curated-mate', Chess);
   }
   return null;
 }
 
-/* These are deliberately one-to-one mappings.  A motif is a distinct mating
- * geometry, never a new label placed on a shared scaffold. */
-const MATE_VARIANTS = [
-  ['back-rank', 'backRank'],          // heavy piece cuts the blocked back rank
-  ['queen-touch-support', 'cornerBox'], // queen beside king, protected by king
-  ['smothered-knight', 'knightCage'], // knight delivers to a king boxed by own men
-  ['bishop-battery', 'diagonal']      // long diagonal support closes the sole flight square
+/* 8 genuinely different, verified mating families. */
+export const MATE_VARIANTS = [
+  ['back-rank', 'backRank'],            // heavy piece cuts the blocked back rank
+  ['queen-touch-support', 'cornerBox'],   // queen beside king, protected by king
+  ['smothered-knight', 'knightCage'],   // knight delivers to a king boxed by own men
+  ['bishop-battery', 'diagonal'],        // long diagonal support closes flight square
+  ['double-rook', 'doubleRook'],        // lawnmower two-rook ladder
+  ['queen-knight', 'queenKnight'],      // knight on g5 defends queen on h7
+  ['pawn-cover', 'pawnCover'],          // advanced pawn locks down flight squares
+  ['arabian-mate', 'arabianMate']       // knight covers escape and defends rook on edge
 ];
+
 let mateMotifCursor = 0;
 export const MATE_GENERATOR_HEALTH = Object.fromEntries(MATE_VARIANTS.map(([motif]) => [motif, { attempts: 0, successes: 0, rejections: 0 }]));
-export function resetMateGeneratorHealth() { for (const value of Object.values(MATE_GENERATOR_HEALTH)) Object.assign(value, { attempts: 0, successes: 0, rejections: 0 }); }
+export function resetMateGeneratorHealth() {
+  for (const value of Object.values(MATE_GENERATOR_HEALTH)) {
+    Object.assign(value, { attempts: 0, successes: 0, rejections: 0 });
+  }
+}
+
 const MATE_LEVELS = {
   1: { variants: MATE_VARIANTS, minMates: 1, maxMates: 3, decoys: [0, 1], lure: false },
   2: { variants: MATE_VARIANTS, minMates: 1, maxMates: 1, decoys: [1, 2], lure: false },
@@ -472,8 +824,13 @@ const MATE_LEVELS = {
 };
 
 function mateMovesForFen(Chess, fen) {
-  const c = new Chess(fen); const mates = [];
-  for (const m of c.moves({ verbose: true })) { c.move(m); if (c.isCheckmate()) mates.push({ from: m.from, to: m.to, san: m.san }); c.undo(); }
+  const c = new Chess(fen);
+  const mates = [];
+  for (const m of c.moves({ verbose: true })) {
+    c.move(m);
+    if (c.isCheckmate()) mates.push({ from: m.from, to: m.to, san: m.san });
+    c.undo();
+  }
   return mates;
 }
 
@@ -482,27 +839,36 @@ export function mateOnePuzzle(Chess, { rng = Math.random, seen, level = 1, sched
   const motifNames = cfg.variants.map(([motif]) => motif);
   const first = scheduler ? scheduler.chooseMotif(motifNames) : motifNames[mateMotifCursor++ % motifNames.length];
   const ordered = [first, ...motifNames.filter((m) => m !== first)];
-  for (const motif of ordered) {
-    const family = cfg.variants.find(([name]) => name === motif)[1];
-    for (let attempt = 0; attempt < 50; attempt++) {
-      MATE_GENERATOR_HEALTH[motif].attempts++;
-      const wantLure = cfg.lure && attempt < 20;
-      const { board, lane } = MATE_FAMILIES[family](rng);
-    const good = () => inspectMateOne(Chess, board, { minMates: cfg.minMates, maxMates: cfg.maxMates, wantLure });
-      if (!good()) { MATE_GENERATOR_HEALTH[motif].rejections++; continue; }
-    decorateMateBoard(board, lane, rng, cfg.decoys, () => !!good());
-    const got = good();
-      if (!got) { MATE_GENERATOR_HEALTH[motif].rejections++; continue; }
-    for (const side of attempt % 2 ? ['b', 'w'] : ['w', 'b']) {
-      const fen = side === 'b' ? invertPuzzleFen(got.fen) : got.fen;
-      const mates = side === 'b' ? mateMovesForFen(Chess, fen) : got.mates;
-      const p = puzzleFromMate(fen, mates, level, motif);
-      if ((seen && seen.has(fen)) || (scheduler && !scheduler.allows(p))) continue;
-      if (seen) seen.add(fen);
-      MATE_GENERATOR_HEALTH[motif].successes++;
-      return p;
-    }
-    MATE_GENERATOR_HEALTH[motif].rejections++;
+
+  const passes = [
+    { relaxSide: false, relaxMotif: false },
+    { relaxSide: true, relaxMotif: false },
+    { relaxSide: true, relaxMotif: true }
+  ];
+
+  for (const relax of passes) {
+    for (const motif of ordered) {
+      const family = cfg.variants.find(([name]) => name === motif)[1];
+      for (let attempt = 0; attempt < 40; attempt++) {
+        MATE_GENERATOR_HEALTH[motif].attempts++;
+        const wantLure = cfg.lure && attempt < 20;
+        const { board, lane } = MATE_FAMILIES[family](rng);
+        const good = () => inspectMateOne(Chess, board, { minMates: cfg.minMates, maxMates: cfg.maxMates, wantLure });
+        if (!good()) { MATE_GENERATOR_HEALTH[motif].rejections++; continue; }
+        decorateMateBoard(board, lane, rng, cfg.decoys, () => !!good());
+        const got = good();
+        if (!got) { MATE_GENERATOR_HEALTH[motif].rejections++; continue; }
+        for (const side of attempt % 2 ? ['b', 'w'] : ['w', 'b']) {
+          const fen = side === 'b' ? invertPuzzleFen(got.fen) : got.fen;
+          const mates = side === 'b' ? mateMovesForFen(Chess, fen) : got.mates;
+          const p = puzzleFromMate(fen, mates, level, motif, Chess);
+          if ((seen && seen.has(fen)) || (scheduler && !scheduler.allows(p, relax))) continue;
+          if (seen) seen.add(fen);
+          MATE_GENERATOR_HEALTH[motif].successes++;
+          return p;
+        }
+        MATE_GENERATOR_HEALTH[motif].rejections++;
+      }
     }
   }
   return curatedMateOne(Chess, rng, seen, level);

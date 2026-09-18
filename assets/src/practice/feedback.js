@@ -6,7 +6,17 @@ const PRAISE = {
 export function getPracticeHint(puzzle, step) {
   const hints = puzzle.hints?.length ? puzzle.hints : [puzzle.hint];
   const index = Math.min(step, hints.length - 1);
-  return { index, text: hints[index], highlight: index >= 1 ? puzzle.target : null };
+  let highlight = null;
+  if (hints.length >= 4) {
+    if (index === 2 && puzzle.target?.from) {
+      highlight = { from: puzzle.target.from };
+    } else if (index >= 3) {
+      highlight = puzzle.target || null;
+    }
+  } else if (index >= 1) {
+    highlight = puzzle.target || null;
+  }
+  return { index, text: hints[index], highlight };
 }
 
 export function getWrongMoveFeedback(puzzle, { givesCheck, captured }) {
@@ -19,11 +29,21 @@ export function getWrongMoveFeedback(puzzle, { givesCheck, captured }) {
 }
 
 export function getSolvedFeedback(puzzle, captured) {
-  return puzzle.drill === 'mate-one'
-    ? { title: 'Checkmate!', text: `Brilliant! ${puzzle.targetSan} traps the king. ${PRAISE[puzzle.drill]}` }
-    : { title: 'Solved!', text: `You took the ${captured} — it really was all alone. ${PRAISE[puzzle.drill]}` };
+  if (puzzle.drill === 'mate-one') {
+    const text = puzzle.explanation
+      ? `Brilliant! ${puzzle.explanation} ${PRAISE[puzzle.drill]}`
+      : `Brilliant! ${puzzle.targetSan} traps the king. ${PRAISE[puzzle.drill]}`;
+    return { title: 'Checkmate!', text };
+  }
+  const text = puzzle.explanation
+    ? `You took the ${captured}! ${puzzle.explanation} ${PRAISE[puzzle.drill]}`
+    : `You took the ${captured} — it really was all alone. ${PRAISE[puzzle.drill]}`;
+  return { title: 'Solved!', text };
 }
 
 export function getRevealFeedback(puzzle) {
+  if (puzzle.explanation) {
+    return puzzle.explanation;
+  }
   return `${puzzle.hint} ${puzzle.drill === 'mate-one' ? 'That is checkmate!' : 'Remember this pattern — always scan for lonely pieces.'}`;
 }

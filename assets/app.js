@@ -12,11 +12,11 @@
 import { pieceSvg, PIECE_NAMES, PIECE_VALUES } from './src/pieces.js';
 import { Engine, DIFFICULTIES, sleep } from './src/engine.js';
 import { classify, describeMove, describeHint, openingTip, evalText, phaseOf } from './src/coach.js';
-import { DRILL_IDS, DRILL_LABELS, PuzzleScheduler, makePuzzle, isSolved, levelForStreak } from './src/drills.js';
+import { DRILL_IDS, DRILL_LABELS, PuzzleScheduler, makePuzzle, isSolved } from './src/drills.js';
 import { emptyPracticeDrill, loadPracticeProgress, savePracticeProgress } from './src/practice/progress.js';
 import { resetPuzzleSession, firstAttempt, solvedProgress, revealedProgress } from './src/practice/controller.js';
 import { getPracticeHint, getWrongMoveFeedback, getSolvedFeedback, getRevealFeedback } from './src/practice/feedback.js';
-import { computeLevelTransition, selectNextPuzzle, recordMiss, recordSolve, recordReveal } from './src/practice/session.js';
+import { computeAdaptiveLevelTransition, selectNextPuzzle, recordMiss, recordSolve, recordReveal } from './src/practice/session.js';
 
 /* ========================================================================== */
 /*  Load chess.js                                                             */
@@ -728,7 +728,6 @@ function selectSquare(name) {
     promotion: typeof m.isPromotion === 'function' ? m.isPromotion() : m.flags.includes('p')
   }));
   state.hint = null;
-  state.practiceHintStep = 0;
   renderBoard();
 }
 
@@ -1336,7 +1335,13 @@ function drillProgress(id = state.drill) { return practiceProgress.drills[id]; }
 /** Move the solve streak and, when it crosses a level threshold, level up the
  *  puzzle difficulty and announce it. Streak is session-only on purpose. */
 function bumpStreak(delta) {
-  const transition = computeLevelTransition(state.solveStreak, delta, levelForStreak);
+  const progress = drillProgress();
+  const transition = computeAdaptiveLevelTransition({
+    currentLevel: state.drillLevel,
+    recentResults: progress ? progress.recentResults : [],
+    streak: state.solveStreak,
+    delta
+  });
   state.solveStreak = transition.streak;
   const level = transition.level;
   if (level !== state.drillLevel) {
@@ -1348,6 +1353,10 @@ function bumpStreak(delta) {
 }
 
 function newPuzzle() {
+  const prog = drillProgress();
+  if (prog && prog.currentLevel) {
+    state.drillLevel = prog.currentLevel;
+  }
   const selection = selectNextPuzzle({ Chess: state.Chess, drill: state.drill, level: state.drillLevel, seen: puzzleSeen, scheduler: puzzleScheduler, makePuzzle });
   state.puzzle = selection.puzzle;
   const p = state.puzzle;
@@ -1386,8 +1395,9 @@ function judgePuzzleMove(move, fenBefore) {
   if (!state.puzzleAttempted) { Object.assign(progress, firstAttempt(progress)); state.puzzleAttempted = true; savePracticeProgress(practiceProgress); }
 
   if (isSolved(state.Chess, p, fenBefore, state.chess, move)) {
+    Object.assign(progress, solvedProgress(progress, { usedHint: state.practiceHintStep > 0, misses: state.misses, level: state.drillLevel }));
     bumpStreak(1);
-    Object.assign(progress, solvedProgress(progress, { usedHint: state.practiceHintStep > 0, level: state.drillLevel }));
+    progress.currentLevel = state.drillLevel;
     savePracticeProgress(practiceProgress);
     renderPracticeProgress();
     state.solved = true;
@@ -1402,7 +1412,8 @@ function judgePuzzleMove(move, fenBefore) {
     return;
   }
 
-  // Wrong idea: take the move straight back and let them try again.
+  // Wrong idea: capture whether this move gave check before undoing, so feedback is accurate.
+  const givesCheck = state.chess.isCheck();
   const miss = recordMiss(state.misses);
   state.misses = miss.misses;
   state.chess.undo();
@@ -1411,24 +1422,24 @@ function judgePuzzleMove(move, fenBefore) {
   state.lastMove = last ? { from: last.move.from, to: last.move.to } : null;
 
   if (miss.reveal) {
-    revealPuzzleSolution();
     return;
   }
   renderAll();
   addBubble({
     tier: 'info',
     title: 'Not quite',
-    text: getWrongMoveFeedback(p, { givesCheck: state.chess.isCheck(), captured: !!move.captured })
+    text: getWrongMoveFeedback(p, { givesCheck, captured: !!move.captured })
   });
 }
 
 function revealPuzzleSolution() {
   const p = state.puzzle;
   if (!p || state.solved) return;
-  bumpStreak(0);   // solve streak does not survive giving up
-  recordReveal();
   const progress = drillProgress();
   Object.assign(progress, revealedProgress(progress, state.drillLevel));
+  bumpStreak(0);   // solve streak does not survive giving up
+  progress.currentLevel = state.drillLevel;
+  recordReveal();
   savePracticeProgress(practiceProgress);
   renderPracticeProgress();
   try {
