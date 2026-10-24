@@ -21,12 +21,17 @@
     "test:drills": "node drills-test.mjs",
     "test:sw": "node sw-test.mjs",
     "test:a11y": "node a11y-test.mjs",
+    "test:3d": "node test-3d-toggle.mjs",
     "shots": "node shots.mjs",
     "icons": "node scripts/generate-icons.mjs",
+    "vendor:babylon": "node scripts/vendor-babylon.mjs",
     "preview": "node preview/render-preview.mjs",
     "preview:verify": "node preview/verify-board.mjs"
   },
   "devDependencies": {
+    "@babylonjs/core": "^9.32.0",
+    "@babylonjs/havok": "^1.3.14",
+    "esbuild": "^0.28.1",
     "puppeteer": "^25.10.0",
     "wrangler": "^4.131.1"
   }

@@ -64,6 +64,7 @@ try {
     ['Service worker checks', 'sw-test.mjs'],
     ['Browser smoke tests', 'smoke-test.mjs'],
     ['Accessibility tests', 'a11y-test.mjs'],
+    ['3D mode verification', 'test-3d-toggle.mjs'],
     ['End-to-end scenarios', 'e2e-test.mjs']
   ];
 

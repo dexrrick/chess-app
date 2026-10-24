@@ -768,3 +768,245 @@ body:not(.animations-enabled) .spinner { animation-duration: 1.6s; }
   .board-frame { forced-color-adjust: none; }
   .square { border-color: var(--black); }
 }
+
+/* -------------------- 2D / 3D Mode Toggle Button ----------------------- */
+.btn-view-mode {
+  margin-left: auto;
+  align-self: center;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 6px 14px;
+  cursor: pointer;
+  border: var(--border-w) solid var(--black);
+  background: var(--white);
+  color: var(--black);
+  box-shadow: 2px 2px 0 var(--black);
+}
+.btn-view-mode:hover {
+  background: var(--light-grey);
+}
+.btn-view-mode:active {
+  box-shadow: none;
+  transform: translate(2px, 2px);
+}
+
+/* ========================================================================== */
+/*  3D Mode Scoped Theme & Layout                                             */
+/* ========================================================================== */
+
+html[data-view-mode="3d"] {
+  background-color: #0b0f19;
+  color: #f1f5f9;
+}
+
+html[data-view-mode="3d"] body {
+  background: radial-gradient(circle at 50% 10%, #1e293b 0%, #0b0f19 100%);
+  color: #f1f5f9;
+  min-height: 100vh;
+}
+
+html[data-view-mode="3d"] .app-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #f8fafc;
+}
+
+html[data-view-mode="3d"] .app-subtitle {
+  color: #94a3b8;
+}
+
+html[data-view-mode="3d"] .btn-view-mode {
+  background: linear-gradient(135deg, #0284c7, #4f46e5);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+  border-radius: 8px;
+}
+html[data-view-mode="3d"] .btn-view-mode:hover {
+  background: linear-gradient(135deg, #0369a1, #4338ca);
+  transform: translateY(-1px);
+}
+
+html[data-view-mode="3d"] .panel-card,
+html[data-view-mode="3d"] .side-panel,
+html[data-view-mode="3d"] .coach-card {
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  color: #f8fafc;
+}
+
+html[data-view-mode="3d"] .panel-heading {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+html[data-view-mode="3d"] .btn {
+  background: rgba(51, 65, 85, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f8fafc;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+}
+
+html[data-view-mode="3d"] .btn:hover:not(:disabled) {
+  background: rgba(71, 85, 105, 0.95);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+html[data-view-mode="3d"] .btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+html[data-view-mode="3d"] .btn-primary {
+  background: #2563eb;
+  border-color: #3b82f6;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+}
+
+html[data-view-mode="3d"] .btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+html[data-view-mode="3d"] .btn-danger {
+  background: rgba(220, 38, 38, 0.85);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ffffff;
+}
+
+html[data-view-mode="3d"] .btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+html[data-view-mode="3d"] .player-card {
+  background: rgba(30, 41, 59, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #f8fafc;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+html[data-view-mode="3d"] .player-card.active {
+  box-shadow: 0 0 0 2px #38bdf8, 0 4px 16px rgba(56, 189, 248, 0.3);
+}
+
+html[data-view-mode="3d"] .board-frame {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  background: #0f172a;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+html[data-view-mode="3d"] #board {
+  display: none !important;
+}
+
+html[data-view-mode="3d"] #move-arrow {
+  display: none !important;
+}
+
+html[data-view-mode="3d"] #board-3d-container {
+  display: block !important;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  position: relative;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  outline: none;
+}
+
+html[data-view-mode="3d"] #board-3d-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  touch-action: none;
+  outline: none;
+}
+
+html[data-view-mode="3d"] .bubble {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+  border-radius: 8px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+html[data-view-mode="3d"] .bubble-title {
+  color: #38bdf8;
+}
+
+html[data-view-mode="3d"] .bubble.tier-brilliant {
+  border-left: 4px solid #a855f7;
+}
+
+html[data-view-mode="3d"] .bubble.tier-best,
+html[data-view-mode="3d"] .bubble.tier-good {
+  border-left: 4px solid #22c55e;
+}
+
+html[data-view-mode="3d"] .bubble.tier-mistake,
+html[data-view-mode="3d"] .bubble.tier-blunder {
+  border-left: 4px solid #ef4444;
+}
+
+html[data-view-mode="3d"] .eval-track {
+  background: #334155;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+html[data-view-mode="3d"] .eval-fill {
+  background: #38bdf8;
+}
+
+html[data-view-mode="3d"] .alert-banner {
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f8fafc;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+html[data-view-mode="3d"] .alert-check {
+  border-left: 4px solid #f59e0b;
+}
+
+html[data-view-mode="3d"] .modal {
+  background: rgba(30, 41, 59, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f8fafc;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+}
+
+html[data-view-mode="3d"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* Responsive iPad adjustments in 3D mode */
+@media (min-width: 768px) and (max-width: 1366px) {
+  html[data-view-mode="3d"] .app-main {
+    gap: 18px;
+    padding: 16px;
+  }
+  html[data-view-mode="3d"] #board-3d-container {
+    max-height: 82vh;
+  }
+}
