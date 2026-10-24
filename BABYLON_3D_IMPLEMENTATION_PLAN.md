@@ -6,16 +6,16 @@ This document tracks the end-to-end design, implementation, and verification pro
 
 ## 1. Architectural Guardrails & Invariants
 - [x] **Branch Isolation**: Created feature branch `feature/babylon-3d-mode`. Do NOT merge to `main` until testing is 100% complete and approved by the user.
-- [ ] **Zero Core/Engine Regression**:
-  - `assets/src/engine.js`, `assets/src/coach.js`, `assets/src/drills.js`, `assets/src/practice/*`, `assets/vendor/chess.js`, `assets/vendor/stockfish*`, and `src/index.js` must remain untouched.
-- [ ] **Zero 2D (E-Ink) Regression**:
-  - `assets/src/pieces.js` and existing 2D board DOM/CSS rules must remain untouched.
-  - Default mode is always `2d` so e-ink devices never load Babylon/Havok/WASM assets.
-- [ ] **Lazy-Loaded 3D Isolation**:
+- [x] **Zero Core/Engine Regression**:
+  - `assets/src/engine.js`, `assets/src/coach.js`, `assets/src/drills.js`, `assets/src/practice/*`, `assets/vendor/chess.js`, `assets/vendor/stockfish*`, and `src/index.js` remain completely untouched.
+- [x] **Zero 2D (E-Ink) Regression**:
+  - `assets/src/pieces.js` and existing 2D board DOM/CSS rules remain untouched.
+  - Default mode is always `2d` on initial load; 0 bytes of Babylon/Havok assets downloaded until user toggles 3D.
+- [x] **Lazy-Loaded 3D Isolation**:
   - Babylon.js and Havok WASM are only loaded via dynamic `import()` upon user switching to 3D.
-- [ ] **COOP/COEP Compliance**:
-  - Vendored locally under `assets/vendor/babylon/` to comply with strict Cross-Origin-Embedder-Policy.
-- [ ] **iPadOS & Mobile First-Class Support**:
+- [x] **COOP/COEP Compliance**:
+  - Vendored locally under `assets/vendor/babylon/` complying with strict Cross-Origin-Embedder-Policy.
+- [x] **iPadOS & Mobile First-Class Support**:
   - Unified Pointer Events (`pointerdown`, `pointermove`, `pointerup`), `touch-action: none`, and hardware scaling capped at `2x` DPR.
 
 ---
@@ -104,3 +104,31 @@ assets/
   - `node e2e-test.mjs`
 - [x] Add 3D-specific smoke & toggle tests in `test-3d-toggle.mjs` (registered in `test-all.mjs`).
 - [ ] User review and manual sign-off before any merge.
+
+---
+
+## 4. Visual & Physics Refinement Log
+
+### 1. Staunton Geometry & Orientation Refinements
+- **Knight Orientation**: White Knights on b1/g1 now face $+Z$ (directly towards Black), and Black Knights on b8/g8 with `Math.PI` rotation face $-Z$ (directly towards White).
+- **Knight Carving**: Replaced flat geometric boxes with contoured forward-arching neck, anatomical cheek masses, tapered muzzle, alert pricked ears, and fluted dorsal mane crest.
+- **Pawn Proportions**: Refined lathe silhouette to classic 1849 Jacques of London Staunton proportions (radius 0.27 base, slender waist at 0.55, astragal double collar at 0.80, and spherical head at 0.99).
+- **Rook**: Tower column with gentle concave taper, flared cornice, recessed stone floor, and 4 clean CSG-cut embrasures.
+- **Bishop**: Slender waisted pedestal, dual astragal rings, teardrop flame mitre head, 45-degree CSG mitre cleft, and finial bead.
+- **Queen**: Regal flared coronet with 8 CSG-cut fluted points around the rim and central royal orb.
+- **King**: Triple royal collars, imperial dome crown, and stately Maltese cross finial.
+
+### 2. Glare Elimination & PBR Materials
+- **Board Tiles**: Disabled clearcoat on light/dark square tiles and tuned roughness to 0.44/0.40 for a luxury satin wood finish.
+- **Lighting**: Disabled specular reflection on the cool rim backlight (`rimLight.specular = Color3(0, 0, 0)`), completely eliminating the white glare hotspot on the board.
+- **Tournament Table**: Unified beveled mahogany tournament table (`#5c2b18`) with sunken tournament green felt capture trays (`#1a5330`) and brushed brass gold inlay borders (`#d4af37`).
+- **Wood Tones**: White pieces in warm polished honey boxwood (`#f4e8d3`); Black pieces in warm roasted walnut / ebonized hardwood (`#3a261a`) with enhanced fill lighting.
+
+### 3. Havok WASM Transform Sync & Physics Knockdown
+- **WASM Transform Sync**: Configured `body.disablePreStep = false` and properly updated `rotationQuaternion` on `ANIMATED` (kinematic) piece bodies, resolving the Havok snapback issue.
+- **Move Animation & Knockdown**:
+  - Parabolic kinematic arcs with Web Audio wooden clack on touchdown.
+  - At 60% of the move arc, `toppleCapturedPiece` triggers a dynamic Havok impulse that physically knocks the captured piece over and tumbles it towards the side felt tray.
+  - Deduplicated `animateMove` calls and prevented premature `syncPiecesFromFen` from interrupting active move tweens.
+  - Automatic disposal of old graveyard pieces upon starting a new game.
+

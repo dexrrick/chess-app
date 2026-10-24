@@ -9,7 +9,7 @@ import { resetPieceKinematic } from './physics.js';
 let audioCtx = null;
 
 /**
- * Procedural wooden piece "clack" using Web Audio API (zero external sound files).
+ * Procedural wooden piece "clack" using Web Audio API.
  */
 export function playPieceClack(isCapture = false) {
   try {
@@ -26,14 +26,14 @@ export function playPieceClack(isCapture = false) {
     const filter = audioCtx.createBiquadFilter();
 
     filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(isCapture ? 340 : 520, t);
-    filter.Q.setValueAtTime(3.8, t);
+    filter.frequency.setValueAtTime(isCapture ? 360 : 540, t);
+    filter.Q.setValueAtTime(3.5, t);
 
     osc.type = 'triangle';
-    osc.frequency.setValueAtTime(isCapture ? 190 : 260, t);
-    osc.frequency.exponentialRampToValueAtTime(45, t + 0.08);
+    osc.frequency.setValueAtTime(isCapture ? 210 : 280, t);
+    osc.frequency.exponentialRampToValueAtTime(50, t + 0.08);
 
-    gain.gain.setValueAtTime(isCapture ? 0.42 : 0.26, t);
+    gain.gain.setValueAtTime(isCapture ? 0.45 : 0.28, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
 
     osc.connect(filter);
@@ -58,38 +58,60 @@ export function animatePieceMove(pieceMesh, targetPos, options = {}) {
     onComplete = null
   } = options;
 
+  if (pieceMesh.physicsAggregate) {
+    pieceMesh.physicsAggregate.body.disablePreStep = false;
+  }
+
   const startPos = pieceMesh.position.clone();
   const startTime = performance.now();
-  const peakHeight = isKnight ? 1.3 : 0.65;
+  const peakHeight = isKnight ? 1.25 : 0.65;
+  const rotY = pieceMesh.metadata?.pieceType === 'n'
+    ? (pieceMesh.metadata.color === 'w' ? 0 : Math.PI)
+    : 0;
 
   let captureHandled = false;
 
   return new Promise((resolve) => {
-    const observer = pieceMesh.getScene().onBeforeRenderObservable.add(() => {
+    const scene = pieceMesh.getScene();
+    const observer = scene.onBeforeRenderObservable.add(() => {
       const now = performance.now();
       const elapsed = now - startTime;
       const progress = Math.min(1.0, elapsed / durationMs);
 
-      // Smooth ease in-out quadratic
+      // Smooth ease-in-out curve
       const easeT = progress < 0.5
         ? 2 * progress * progress
         : 1 - Math.pow(-2 * progress + 2, 2) / 2;
 
-      // Parabolic arc Y
+      // Parabolic vertical lift
       const arcY = 4 * peakHeight * progress * (1 - progress);
 
       pieceMesh.position.x = BABYLON.Scalar.Lerp(startPos.x, targetPos.x, easeT);
       pieceMesh.position.z = BABYLON.Scalar.Lerp(startPos.z, targetPos.z, easeT);
       pieceMesh.position.y = arcY;
 
-      // Trigger capture physical tumble just before landing
-      if (capturedPieceMesh && !captureHandled && progress >= 0.72) {
+      // Gentle forward pitch during move
+      const pitch = Math.sin(Math.PI * progress) * 0.12;
+      const dirX = targetPos.x - startPos.x;
+      const dirZ = targetPos.z - startPos.z;
+      const len = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
+      const pitchX = (dirZ / len) * pitch;
+      const rollZ = -(dirX / len) * pitch;
+
+      if (pieceMesh.rotationQuaternion) {
+        pieceMesh.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(rotY, pitchX, rollZ);
+      } else {
+        pieceMesh.rotation.set(pitchX, rotY, rollZ);
+      }
+
+      // Trigger capture physical knockdown midway through the arc
+      if (capturedPieceMesh && !captureHandled && progress >= 0.60) {
         captureHandled = true;
         toppleCapturedPiece(capturedPieceMesh, targetPos);
       }
 
       if (progress >= 1.0) {
-        pieceMesh.getScene().onBeforeRenderObservable.remove(observer);
+        scene.onBeforeRenderObservable.remove(observer);
         resetPieceKinematic(pieceMesh, targetPos);
         playPieceClack(!!capturedPieceMesh);
 
@@ -101,7 +123,7 @@ export function animatePieceMove(pieceMesh, targetPos, options = {}) {
 }
 
 /**
- * Applies dynamic Havok impulse to a captured piece, tossing it into side graveyard.
+ * Applies dynamic Havok impulse to a captured piece, tossing it realistically into the side felt tray.
  */
 export function toppleCapturedPiece(pieceMesh, attackerPos) {
   if (!pieceMesh) return;
@@ -110,27 +132,49 @@ export function toppleCapturedPiece(pieceMesh, attackerPos) {
     const body = pieceMesh.physicsAggregate.body;
     body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
 
-    // Direction away from attacker towards outer board flanks
+    // Direction away from board center towards outer felt trays
     const trayDirection = pieceMesh.position.x >= 0 ? 1 : -1;
+    body.setLinearVelocity(new BABYLON.Vector3(
+      trayDirection * (2.4 + Math.random() * 1.0),
+      1.8 + Math.random() * 0.8,
+      (Math.random() - 0.5) * 1.5
+    ));
+
     const impulse = new BABYLON.Vector3(
-      trayDirection * (2.8 + Math.random() * 1.5),
-      2.2 + Math.random() * 1.2,
-      (Math.random() - 0.5) * 2.0
+      trayDirection * (2.8 + Math.random() * 1.2),
+      2.0 + Math.random() * 1.0,
+      (Math.random() - 0.5) * 1.8
     );
 
-    const contactPoint = pieceMesh.position.clone().add(new BABYLON.Vector3(0, 0.4, 0));
+    // Hit high on the piece body to cause dramatic toppling torque
+    const contactPoint = pieceMesh.position.clone().add(new BABYLON.Vector3(0, 0.65, 0));
     body.applyImpulse(impulse, contactPoint);
 
     // Add spin torque
     body.applyAngularImpulse(new BABYLON.Vector3(
-      (Math.random() - 0.5) * 1.8,
-      Math.random() * 1.2,
-      (Math.random() - 0.5) * 1.8
+      (Math.random() - 0.5) * 2.5,
+      Math.random() * 1.5,
+      (Math.random() - 0.5) * 2.5
     ));
   } else {
-    // Non-physics fallback slide to graveyard
-    const sideX = pieceMesh.position.x >= 0 ? 5.8 : -5.8;
-    pieceMesh.position.set(sideX, -0.2, (Math.random() - 0.5) * 6.0);
+    // Non-physics smooth slide fallback
+    const targetX = pieceMesh.position.x >= 0 ? 5.15 : -5.15;
+    const targetZ = (Math.random() - 0.5) * 6.0;
+    const scene = pieceMesh.getScene();
+    const startP = pieceMesh.position.clone();
+    const startR = pieceMesh.rotation.clone();
+    const startT = performance.now();
+
+    const slideObserver = scene.onBeforeRenderObservable.add(() => {
+      const p = Math.min(1.0, (performance.now() - startT) / 450);
+      pieceMesh.position.x = BABYLON.Scalar.Lerp(startP.x, targetX, p);
+      pieceMesh.position.z = BABYLON.Scalar.Lerp(startP.z, targetZ, p);
+      pieceMesh.position.y = Math.sin(p * Math.PI) * 0.4 - 0.05 * p;
+      pieceMesh.rotation.z = BABYLON.Scalar.Lerp(startR.z, Math.PI / 2.2, p);
+      if (p >= 1.0) {
+        scene.onBeforeRenderObservable.remove(slideObserver);
+      }
+    });
   }
 }
 
@@ -143,13 +187,12 @@ export function toppleKing(kingMesh) {
   if (kingMesh.physicsAggregate) {
     const body = kingMesh.physicsAggregate.body;
     body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
-    // Gentle tipping impulse
+    // Angular impulse to tip over
     body.applyImpulse(
-      new BABYLON.Vector3((Math.random() - 0.5) * 0.4, 0.1, (Math.random() - 0.5) * 0.4),
-      kingMesh.position.clone().add(new BABYLON.Vector3(0, 1.8, 0))
+      new BABYLON.Vector3((Math.random() - 0.5) * 0.6, 0.15, (Math.random() - 0.5) * 0.6),
+      kingMesh.position.clone().add(new BABYLON.Vector3(0, 1.9, 0))
     );
   } else {
-    // Fallback rotation
-    kingMesh.rotation.z = Math.PI / 2.3;
+    kingMesh.rotation.z = Math.PI / 2.25;
   }
 }
