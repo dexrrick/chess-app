@@ -17,6 +17,22 @@ import { emptyPracticeDrill, loadPracticeProgress, savePracticeProgress } from '
 import { resetPuzzleSession, firstAttempt, solvedProgress, revealedProgress } from './src/practice/controller.js';
 import { getPracticeHint, getWrongMoveFeedback, getSolvedFeedback, getRevealFeedback } from './src/practice/feedback.js';
 import { computeAdaptiveLevelTransition, selectNextPuzzle, recordMiss, recordSolve, recordReveal } from './src/practice/session.js';
+import { createBoard3DBridge } from './src/board3d/bridge.js';
+
+let board3d = null;
+
+function get3DState() {
+  return {
+    fen: state.chess ? state.chess.fen() : null,
+    turn: state.chess ? state.chess.turn() : 'w',
+    lastMove: state.lastMove,
+    inCheck: state.chess ? state.chess.isCheck() : false,
+    gameOver: state.gameOver || (state.chess ? state.chess.isGameOver() : false),
+    orientation: state.flipped ? 'black' : 'white',
+    selectedSquare: state.selected,
+    legalMoves: state.legalTargets
+  };
+}
 
 /* ========================================================================== */
 /*  Load chess.js                                                             */
@@ -384,6 +400,7 @@ function visualOrder() {
 function renderBoard() {
   layoutBoard();
   drawMoveArrow();
+  board3d?.syncState(get3DState());
   const order = visualOrder();
   const board = state.chess.board();   // board[0] is rank 8
   const turn = state.chess.turn();
@@ -777,6 +794,7 @@ async function attemptMove(from, to, promotion) {
 
   move.captured ? sfx.capture() : sfx.move();
   renderAll();
+  board3d?.animateMove({ from: move.from, to: move.to, promotion: move.promotion }, state.chess.fen());
 
 if (state.chess.isCheck() && !state.chess.isGameOver()) {
     setTimeout(() => sfx.check(), 120);
@@ -1192,6 +1210,7 @@ function applyComputerMove(move) {
 
   played.captured ? sfx.capture() : sfx.move();
   renderAll();
+  board3d?.animateMove({ from: played.from, to: played.to, promotion: played.promotion }, state.chess.fen());
 
   if (state.chess.isCheck() && !state.chess.isGameOver()) {
     setTimeout(() => sfx.check(), 120);
@@ -1849,6 +1868,14 @@ async function boot() {
   bindSettings();
   bindKeyboard();
   bindCoachPlacement();
+
+  board3d = createBoard3DBridge({
+    getGameState: get3DState,
+    onSquareSelect: (square) => onSquareClick(square),
+    onMoveAttempt: (from, to, promotion) => attemptMove(from, to, promotion),
+    onRefresh2D: () => renderAll()
+  });
+
   renderAll();
 
   // Start the first game immediately so the board is playable while the
@@ -1899,5 +1926,5 @@ if ('serviceWorker' in navigator && !/^(localhost|127\.0\.0\.1)$/.test(location.
 }
 
 /* Expose a tiny debug surface for smoke tests. */
-window.__chessClub = { state, get dom() { return dom; } };
+window.__chessClub = { state, get dom() { return dom; }, get board3d() { return board3d; } };
 

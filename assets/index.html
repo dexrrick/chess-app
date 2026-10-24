@@ -22,6 +22,7 @@
 <header class="app-header" role="banner">
   <h1 class="app-title"><span class="logo-crown" aria-hidden="true">&#9819;</span> Chess Club</h1>
   <p class="app-subtitle">Play. Think. Learn.</p>
+  <button type="button" id="view-mode-toggle" class="btn btn-view-mode" aria-label="Switch between 2D and 3D view">3D View</button>
 </header>
 
 <!-- ============================ ALERT BANNER ============================ -->
@@ -52,6 +53,7 @@
         <div id="board" class="board" role="grid" aria-label="Chess board" tabindex="0"
              aria-describedby="board-instructions"
              aria-rowcount="8" aria-colcount="8"></div>
+        <div id="board-3d-container" hidden aria-hidden="true"></div>
         <!-- Last-move arrow. Purely decorative: the move is announced in the
              coach feed and listed under "Move list", so this is hidden from
              assistive tech. Geometry lives in drawMoveArrow() in app.js. -->
