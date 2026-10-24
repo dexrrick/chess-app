@@ -1,6 +1,7 @@
 /**
  * assets/src/board3d/physics.js
- * Havok physics world initialization, colliders, and piece physics aggregates.
+ * Havok physics world initialization, table surface colliders, sunken felt tray colliders,
+ * and piece physics aggregates.
  */
 
 import * as BABYLON from '../../vendor/babylon/babylon.js';
@@ -13,10 +14,7 @@ async function getHavokInstance() {
       const mod = await import('../../vendor/babylon/HavokPhysics_es.js');
       const HavokPhysics = mod.default;
       return HavokPhysics({
-        locateFile: (path) => {
-          // Absolute path works with local serve & worker
-          return `/vendor/babylon/${path}`;
-        }
+        locateFile: (path) => `/vendor/babylon/${path}`
       });
     })();
   }
@@ -27,40 +25,41 @@ export async function initPhysics(scene) {
   try {
     const havokInstance = await getHavokInstance();
     const hkPlugin = new BABYLON.HavokPlugin(true, havokInstance);
-    scene.enablePhysics(new BABYLON.Vector3(0, -9.81 * 2, 0), hkPlugin);
+    // Gravity: realistic downward pull
+    scene.enablePhysics(new BABYLON.Vector3(0, -9.81 * 2.5, 0), hkPlugin);
 
-    // 1. Static Board Surface Collider
+    // 1. Static Chess Board Ground Collider
     const boardGround = BABYLON.MeshBuilder.CreateBox(
       'physics_board_ground',
-      { width: 8.4, depth: 8.4, height: 0.2 },
+      { width: 8.3, depth: 8.3, height: 0.2 },
       scene
     );
-    boardGround.position.set(0, -0.1, 0);
+    boardGround.position.set(0, -0.10, 0);
     boardGround.isVisible = false;
     new BABYLON.PhysicsAggregate(
       boardGround,
       BABYLON.PhysicsShapeType.BOX,
-      { mass: 0, restitution: 0.1, friction: 0.7 },
+      { mass: 0, restitution: 0.15, friction: 0.65 },
       scene
     );
 
-    // 2. Graveyard Trays Colliders (left and right)
-    const trayL = BABYLON.MeshBuilder.CreateBox('physics_tray_l', { width: 2.2, depth: 8.8, height: 0.3 }, scene);
-    trayL.position.set(-5.8, -0.15, 0);
+    // 2. Left and Right Sunken Felt Tray Colliders (high friction so captured pieces settle)
+    const trayL = BABYLON.MeshBuilder.CreateBox('physics_tray_l', { width: 1.8, depth: 8.5, height: 0.2 }, scene);
+    trayL.position.set(-4.95, -0.12, 0);
     trayL.isVisible = false;
-    new BABYLON.PhysicsAggregate(trayL, BABYLON.PhysicsShapeType.BOX, { mass: 0, friction: 0.8 }, scene);
+    new BABYLON.PhysicsAggregate(trayL, BABYLON.PhysicsShapeType.BOX, { mass: 0, friction: 0.85, restitution: 0.1 }, scene);
 
-    const trayR = BABYLON.MeshBuilder.CreateBox('physics_tray_r', { width: 2.2, depth: 8.8, height: 0.3 }, scene);
-    trayR.position.set(5.8, -0.15, 0);
+    const trayR = BABYLON.MeshBuilder.CreateBox('physics_tray_r', { width: 1.8, depth: 8.5, height: 0.2 }, scene);
+    trayR.position.set(4.95, -0.12, 0);
     trayR.isVisible = false;
-    new BABYLON.PhysicsAggregate(trayR, BABYLON.PhysicsShapeType.BOX, { mass: 0, friction: 0.8 }, scene);
+    new BABYLON.PhysicsAggregate(trayR, BABYLON.PhysicsShapeType.BOX, { mass: 0, friction: 0.85, restitution: 0.1 }, scene);
 
-    // 3. Perimeter Lips to prevent tumbling pieces from falling into infinite void
+    // 3. Perimeter Lips around the table edges to contain tumbled pieces
     const lips = [
-      { name: 'lip_n', pos: [0, 0.2, 4.8], size: [14.0, 0.6, 0.4] },
-      { name: 'lip_s', pos: [0, 0.2, -4.8], size: [14.0, 0.6, 0.4] },
-      { name: 'lip_w', pos: [-7.0, 0.2, 0], size: [0.4, 0.6, 10.0] },
-      { name: 'lip_e', pos: [7.0, 0.2, 0], size: [0.4, 0.6, 10.0] }
+      { name: 'lip_n', pos: [0, 0.25, 4.85], size: [12.4, 0.6, 0.4] },
+      { name: 'lip_s', pos: [0, 0.25, -4.85], size: [12.4, 0.6, 0.4] },
+      { name: 'lip_w', pos: [-6.05, 0.25, 0], size: [0.4, 0.6, 10.0] },
+      { name: 'lip_e', pos: [6.05, 0.25, 0], size: [0.4, 0.6, 10.0] }
     ];
     lips.forEach(({ name, pos, size }) => {
       const lip = BABYLON.MeshBuilder.CreateBox(`physics_${name}`, { width: size[0], height: size[1], depth: size[2] }, scene);
@@ -77,7 +76,7 @@ export async function initPhysics(scene) {
 }
 
 /**
- * Attaches a kinematic/dynamic Havok PhysicsAggregate to a piece.
+ * Attaches a hybrid kinematic/dynamic Havok PhysicsAggregate to a piece.
  */
 export function attachPiecePhysics(pieceMesh, scene) {
   if (!scene.isPhysicsEnabled()) return null;
@@ -88,14 +87,15 @@ export function attachPiecePhysics(pieceMesh, scene) {
       BABYLON.PhysicsShapeType.CYLINDER,
       {
         mass: 1.0,
-        restitution: 0.12,
-        friction: 0.65
+        restitution: 0.18,
+        friction: 0.60
       },
       scene
     );
 
-    // Kinematic by default — avoids drift, snapping precisely to algebraic coordinates
+    // Standing pieces are ANIMATED (kinematic): strictly anchored to algebraic squares
     agg.body.setMotionType(BABYLON.PhysicsMotionType.ANIMATED);
+    agg.body.disablePreStep = false; // Allow manual transform updates from JavaScript tweens
     pieceMesh.physicsAggregate = agg;
     return agg;
   } catch (err) {
@@ -111,15 +111,20 @@ export function resetPieceKinematic(pieceMesh, targetPos) {
   if (pieceMesh.physicsAggregate) {
     const body = pieceMesh.physicsAggregate.body;
     body.setMotionType(BABYLON.PhysicsMotionType.ANIMATED);
+    body.disablePreStep = false;
     body.setLinearVelocity(BABYLON.Vector3.Zero());
     body.setAngularVelocity(BABYLON.Vector3.Zero());
   }
 
   pieceMesh.position.copyFrom(targetPos);
-  // Restore upright orientation
+  // Knights face opponent; all other pieces face forward
   const rotY = pieceMesh.metadata?.pieceType === 'n'
     ? (pieceMesh.metadata.color === 'w' ? 0 : Math.PI)
     : 0;
-  pieceMesh.rotationQuaternion = null;
-  pieceMesh.rotation.set(0, rotY, 0);
+
+  if (pieceMesh.rotationQuaternion) {
+    pieceMesh.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(rotY, 0, 0);
+  } else {
+    pieceMesh.rotation.set(0, rotY, 0);
+  }
 }

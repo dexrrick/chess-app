@@ -1927,4 +1927,5 @@ if ('serviceWorker' in navigator && !/^(localhost|127\.0\.0\.1)$/.test(location.
 
 /* Expose a tiny debug surface for smoke tests. */
 window.__chessClub = { state, get dom() { return dom; }, get board3d() { return board3d; } };
+window.__chessClubClick = onSquareClick;
 

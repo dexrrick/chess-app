@@ -1,14 +1,14 @@
 /**
  * assets/src/board3d/scene.js
- * Babylon Engine, Scene, ArcRotateCamera, PCF Shadows, PBR Materials, Post-Processing,
- * and Piece State Synchronization.
+ * Babylon Engine, Scene, Studio 3-Point Lighting, Rim Light, PCF Shadows,
+ * PBR Materials, Post-Processing Pipeline, and Move Physics/Animation Orchestration.
  */
 
 import * as BABYLON from '../../vendor/babylon/babylon.js';
 import { createMaterials } from './materials.js';
 import { createBoardMesh, createPieceMasterMeshes, instantiatePiece, squareToVector3, BOARD_FILES, BOARD_RANKS } from './meshes.js';
 import { initPhysics, attachPiecePhysics, resetPieceKinematic } from './physics.js';
-import { animatePieceMove, toppleKing } from './animations.js';
+import { animatePieceMove, toppleCapturedPiece, toppleKing } from './animations.js';
 import { createInputController } from './input.js';
 
 export async function createBoard3DWorld(containerEl, appCallbacks) {
@@ -23,7 +23,7 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
   containerEl.innerHTML = '';
   containerEl.appendChild(canvas);
 
-  // 2. Babylon Engine
+  // 2. Babylon Engine with high-performance preferences
   const engine = new BABYLON.Engine(canvas, true, {
     preserveDrawingBuffer: true,
     stencil: true,
@@ -31,57 +31,78 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
   });
   engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 2));
 
-  // 3. Scene
+  // 3. Scene setup
   const scene = new BABYLON.Scene(engine);
-  scene.clearColor = new BABYLON.Color4(0.04, 0.07, 0.12, 1.0);
+  scene.clearColor = new BABYLON.Color4(0.06, 0.09, 0.15, 1.0);
 
   // 4. ArcRotateCamera with smooth inertia and limits
   const camera = new BABYLON.ArcRotateCamera(
     'camera3d',
     -Math.PI / 2, // Facing white by default
-    Math.PI / 3.0, // ~60 degrees angle down
-    14.6,
+    Math.PI / 3.4, // ~53 degrees pitch down (natural, comfortable perspective)
+    13.8,          // Board and tournament table fill the frame
     new BABYLON.Vector3(0, 0, 0),
     scene
   );
+  camera.minZ = 0.2;
   camera.attachControl(canvas, true);
-  camera.inertia = 0.82;
-  camera.lowerBetaLimit = 0.22;
-  camera.upperBetaLimit = Math.PI / 2.25; // Prevents clipping under table
-  camera.lowerRadiusLimit = 8.0;
+  camera.inertia = 0.85;
+  camera.lowerBetaLimit = 0.25;
+  camera.upperBetaLimit = Math.PI / 2.25;
+  camera.lowerRadiusLimit = 7.0;
   camera.upperRadiusLimit = 22.0;
   camera.wheelPrecision = 28;
   camera.pinchPrecision = 28;
 
-  // 5. Lights & PCF Shadows
+  // 5. Studio 3-Point Lighting Setup with Soft PCF Shadows & Rim Light
+  // Ambient Hemispheric Fill
   const hemiLight = new BABYLON.HemisphericLight('hemiLight', new BABYLON.Vector3(0, 1, 0), scene);
-  hemiLight.intensity = 0.65;
-  hemiLight.groundColor = new BABYLON.Color3(0.12, 0.15, 0.2);
+  hemiLight.intensity = 0.58;
+  hemiLight.groundColor = new BABYLON.Color3(0.18, 0.20, 0.26);
 
-  const dirLight = new BABYLON.DirectionalLight('dirLight', new BABYLON.Vector3(-0.6, -1.4, -0.75), scene);
-  dirLight.position = new BABYLON.Vector3(6.5, 14, 8.0);
-  dirLight.intensity = 1.35;
+  // Key Light (Warm sunlight from upper left)
+  const keyLight = new BABYLON.DirectionalLight('keyLight', new BABYLON.Vector3(0.5, -1.3, 0.7), scene);
+  keyLight.position = new BABYLON.Vector3(-5.0, 14.0, -7.0);
+  keyLight.intensity = 1.05;
+  keyLight.diffuse = BABYLON.Color3.FromHexString('#fff9f2');
+  keyLight.specular = new BABYLON.Color3(0.35, 0.35, 0.35);
 
-  const shadowGen = new BABYLON.ShadowGenerator(2048, dirLight);
+  const shadowGen = new BABYLON.ShadowGenerator(2048, keyLight);
   shadowGen.usePercentageCloserFiltering = true;
   shadowGen.filteringQuality = BABYLON.ShadowGenerator.QUALITY_MEDIUM;
-  shadowGen.bias = 0.0018;
-  shadowGen.normalBias = 0.01;
+  shadowGen.bias = 0.002;
+  shadowGen.normalBias = 0.010;
 
-  // 6. Post-Processing Pipeline (ACES tone mapping, bloom, FXAA)
+  // Fill Light (Soft warm fill from opposite side illuminating Black pieces)
+  const fillLight = new BABYLON.DirectionalLight('fillLight', new BABYLON.Vector3(-0.4, -0.9, -0.6), scene);
+  fillLight.position = new BABYLON.Vector3(6.0, 11.0, 7.0);
+  fillLight.intensity = 0.65;
+  fillLight.diffuse = BABYLON.Color3.FromHexString('#faeee3');
+  fillLight.specular = new BABYLON.Color3(0.20, 0.20, 0.20);
+
+  // Rim Light (Contour backlight with zero specular to prevent glare on the board)
+  const rimLight = new BABYLON.DirectionalLight('rimLight', new BABYLON.Vector3(0, -0.75, -1.0), scene);
+  rimLight.position = new BABYLON.Vector3(0, 9.0, 10.0);
+  rimLight.intensity = 0.50;
+  rimLight.diffuse = BABYLON.Color3.FromHexString('#dbeafe');
+  rimLight.specular = new BABYLON.Color3(0, 0, 0); // No glare hotspot
+
+  // 6. Post-Processing Pipeline (ACES tone mapping, subtle bloom, FXAA)
   const pipeline = new BABYLON.DefaultRenderingPipeline('pipeline', true, scene, [camera]);
   pipeline.fxaaEnabled = true;
   pipeline.bloomEnabled = true;
-  pipeline.bloomThreshold = 0.72;
-  pipeline.bloomWeight = 0.16;
+  pipeline.bloomThreshold = 0.85;
+  pipeline.bloomWeight = 0.10;
   pipeline.bloomKernel = 32;
   pipeline.imageProcessing.toneMappingEnabled = true;
   pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+  pipeline.imageProcessing.contrast = 1.12;
+  pipeline.imageProcessing.exposure = 1.05;
 
   // 7. Initialize Havok Physics
   await initPhysics(scene);
 
-  // 8. Materials & Meshes
+  // 8. Materials, Board, and Piece Masters
   const materials = createMaterials(scene);
   const { squareMeshes } = createBoardMesh(scene, materials);
   const masterMeshes = createPieceMasterMeshes(scene);
@@ -126,8 +147,13 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
 
   // Active Pieces Tracking: Map square -> pieceMesh
   let pieceBySquare = new Map();
+  let graveyardPieces = [];
   let pieceIdCounter = 0;
   let currentOrientation = 'white';
+  let isMoveAnimating = false;
+  let activeAnimationPromise = null;
+  let animatingMoveKey = null;
+  let lastKnownFen = null;
 
   function getPieceAt(sq) {
     return pieceBySquare.get(sq) || null;
@@ -153,7 +179,77 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
   });
   inputCtrl.setGetPieceFn(getPieceAt);
 
-  // 11. State Synchronization
+  // 11. Move Animation with Havok Knockdown
+  async function animateMove(moveObj, newFen) {
+    if (!moveObj || !moveObj.from || !moveObj.to) {
+      if (newFen) {
+        lastKnownFen = newFen;
+        syncPiecesFromFen(newFen);
+      }
+      return;
+    }
+
+    const { from, to } = moveObj;
+    const moveKey = `${from}-${to}`;
+
+    // If this move is already in flight, return the active promise to avoid duplicate triggers
+    if (isMoveAnimating && animatingMoveKey === moveKey && activeAnimationPromise) {
+      return activeAnimationPromise;
+    }
+
+    const movingPiece = pieceBySquare.get(from);
+    const capturedPiece = pieceBySquare.get(to);
+
+    if (movingPiece) {
+      isMoveAnimating = true;
+      animatingMoveKey = moveKey;
+      pieceBySquare.delete(from);
+
+      // If a piece was captured on target square, remove it from square map and track for graveyard
+      if (capturedPiece && capturedPiece !== movingPiece) {
+        pieceBySquare.delete(to);
+        graveyardPieces.push(capturedPiece);
+      }
+
+      const targetPos = squareToVector3(to);
+      const isKnight = movingPiece.metadata.pieceType === 'n';
+
+      activeAnimationPromise = animatePieceMove(movingPiece, targetPos, {
+        isKnight,
+        capturedPieceMesh: (capturedPiece && capturedPiece !== movingPiece) ? capturedPiece : null,
+        durationMs: 340
+      }).then(() => {
+        movingPiece.metadata.square = to;
+        pieceBySquare.set(to, movingPiece);
+        isMoveAnimating = false;
+        animatingMoveKey = null;
+        activeAnimationPromise = null;
+
+        if (newFen) {
+          lastKnownFen = newFen;
+          syncPiecesFromFen(newFen);
+        }
+      }).catch((err) => {
+        console.error('Move animation error:', err);
+        isMoveAnimating = false;
+        animatingMoveKey = null;
+        activeAnimationPromise = null;
+        if (newFen) {
+          lastKnownFen = newFen;
+          syncPiecesFromFen(newFen);
+        }
+      });
+
+      return activeAnimationPromise;
+    } else {
+      if (newFen) {
+        lastKnownFen = newFen;
+        syncPiecesFromFen(newFen);
+      }
+    }
+  }
+
+  // 12. Smart State Synchronization
   function syncState(stateObj) {
     const {
       fen,
@@ -169,7 +265,7 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
     inputCtrl.setTurn(turn);
     inputCtrl.setSelected(selectedSquare, legalMoves.map((m) => (typeof m === 'string' ? m : m.to)));
 
-    // Sync board orientation camera rotation smoothly
+    // Camera orientation flip
     if (orientation !== currentOrientation) {
       currentOrientation = orientation;
       const targetAlpha = orientation === 'black' ? Math.PI / 2 : -Math.PI / 2;
@@ -185,8 +281,15 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
       );
     }
 
-    // Sync FEN layout
-    if (fen) {
+    // Pending move check:
+    // When app.js executes a move, it calls renderAll() (which invokes syncState)
+    // immediately prior to calling board3d.animateMove().
+    // If lastMove is present and pieceBySquare has the piece at lastMove.from,
+    // this move is about to be animated by animateMove(). Do NOT wipe pieces with syncPiecesFromFen()!
+    const isPendingMove = lastMove && lastMove.from && lastMove.to && pieceBySquare.has(lastMove.from);
+
+    if (fen && fen !== lastKnownFen && !isMoveAnimating && !isPendingMove) {
+      lastKnownFen = fen;
       syncPiecesFromFen(fen);
     }
 
@@ -199,7 +302,7 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
       highlightSelected.isVisible = false;
     }
 
-    // Highlights: Legal move dots
+    // Highlights: Legal move dots / capture rings
     legalDotsPool.forEach((dot) => { dot.isVisible = false; });
     const targetSquares = legalMoves.map((m) => (typeof m === 'string' ? m : m.to));
     targetSquares.forEach((sq, i) => {
@@ -225,9 +328,8 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
       highlightLastTo.isVisible = false;
     }
 
-    // Highlights: Check pulse under King
+    // Highlights: Check pulse
     if (inCheck) {
-      // Find King square of current turn
       for (const [sq, piece] of pieceBySquare.entries()) {
         if (piece.metadata.pieceType === 'k' && piece.metadata.color === turn) {
           const pos = squareToVector3(sq);
@@ -240,7 +342,7 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
       highlightCheck.isVisible = false;
     }
 
-    // Checkmate topple
+    // Defeated King topple on Checkmate
     if (gameOver && inCheck) {
       for (const [, piece] of pieceBySquare.entries()) {
         if (piece.metadata.pieceType === 'k' && piece.metadata.color === turn) {
@@ -274,7 +376,14 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
       }
     }
 
-    // Clean up or move existing pieces
+    // If starting a fresh full game (32 pieces), clear old graveyard pieces
+    if (targetBoard.size === 32 && ranks[0] === 'rnbqkbnr' && ranks[7] === 'RNBQKBNR') {
+      graveyardPieces.forEach((p) => {
+        try { p.dispose(); } catch {}
+      });
+      graveyardPieces = [];
+    }
+
     const newPieceBySquare = new Map();
     const remainingTargets = new Map(targetBoard);
 
@@ -285,12 +394,11 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
         newPieceBySquare.set(sq, piece);
         remainingTargets.delete(sq);
       } else {
-        // Recycle or dispose mesh
         piece.dispose();
       }
     }
 
-    // Instantiate newly arrived pieces
+    // Instantiate pieces for empty target squares
     for (const [sq, target] of remainingTargets.entries()) {
       pieceIdCounter++;
       const mesh = instantiatePiece(target.type, target.color, pieceIdCounter, masterMeshes, materials, shadowGen, scene);
@@ -306,36 +414,7 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
     pieceBySquare = newPieceBySquare;
   }
 
-  /**
-   * Animate move from moveObj { from, to, promotion }
-   */
-  async function animateMove(moveObj, newFen) {
-    if (!moveObj || !moveObj.from || !moveObj.to) {
-      if (newFen) syncPiecesFromFen(newFen);
-      return;
-    }
-
-    const { from, to } = moveObj;
-    const movingPiece = pieceBySquare.get(from);
-    const capturedPiece = pieceBySquare.get(to);
-
-    if (movingPiece) {
-      const targetPos = squareToVector3(to);
-      const isKnight = movingPiece.metadata.pieceType === 'n';
-
-      await animatePieceMove(movingPiece, targetPos, {
-        isKnight,
-        capturedPieceMesh: capturedPiece,
-        durationMs: 300
-      });
-    }
-
-    if (newFen) {
-      syncPiecesFromFen(newFen);
-    }
-  }
-
-  // 12. Render Loop & Resize Handling
+  // 13. Render Loop & Resize Handling
   let renderLoopRunning = true;
   engine.runRenderLoop(() => {
     if (renderLoopRunning) {

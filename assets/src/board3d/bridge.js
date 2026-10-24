@@ -57,6 +57,7 @@ export function createBoard3DBridge(appCallbacks) {
           onSquareSelect: (sq) => appCallbacks.onSquareSelect(sq),
           onMoveAttempt: (from, to, promo) => appCallbacks.onMoveAttempt(from, to, promo)
         });
+        window.__board3dSceneWorld = sceneWorld;
       } catch (err) {
         console.error('Failed to initialize 3D scene:', err);
         switchTo2D();
