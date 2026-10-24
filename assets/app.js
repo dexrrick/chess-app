@@ -794,7 +794,16 @@ async function attemptMove(from, to, promotion) {
 
   move.captured ? sfx.capture() : sfx.move();
   renderAll();
-  board3d?.animateMove({ from: move.from, to: move.to, promotion: move.promotion }, state.chess.fen());
+  board3d?.animateMove({ 
+    from: move.from, 
+    to: move.to, 
+    promotion: move.promotion,
+    captured: move.captured,
+    flags: move.flags,
+    color: move.color,
+    piece: move.piece,
+    san: move.san
+  }, state.chess.fen());
 
 if (state.chess.isCheck() && !state.chess.isGameOver()) {
     setTimeout(() => sfx.check(), 120);
@@ -1210,7 +1219,16 @@ function applyComputerMove(move) {
 
   played.captured ? sfx.capture() : sfx.move();
   renderAll();
-  board3d?.animateMove({ from: played.from, to: played.to, promotion: played.promotion }, state.chess.fen());
+  board3d?.animateMove({ 
+    from: played.from, 
+    to: played.to, 
+    promotion: played.promotion,
+    captured: played.captured,
+    flags: played.flags,
+    color: played.color,
+    piece: played.piece,
+    san: played.san
+  }, state.chess.fen());
 
   if (state.chess.isCheck() && !state.chess.isGameOver()) {
     setTimeout(() => sfx.check(), 120);
