@@ -29,18 +29,18 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
     stencil: true,
     powerPreference: 'high-performance'
   });
-  engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 2));
+  engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 1.5));
 
   // 3. Scene setup
   const scene = new BABYLON.Scene(engine);
   scene.clearColor = new BABYLON.Color4(0.06, 0.09, 0.15, 1.0);
 
-  // 4. ArcRotateCamera with smooth inertia and limits
+  // 4. ArcRotateCamera with smooth inertia and limits - better framing
   const camera = new BABYLON.ArcRotateCamera(
     'camera3d',
     -Math.PI / 2, // Facing white by default
-    Math.PI / 3.4, // ~53 degrees pitch down (natural, comfortable perspective)
-    13.8,          // Board and tournament table fill the frame
+    Math.PI / 3.2, // Slightly lower angle for better board framing
+    12.5,          // Closer to frame board better in square container
     new BABYLON.Vector3(0, 0, 0),
     scene
   );
@@ -48,56 +48,56 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
   camera.attachControl(canvas, true);
   camera.inertia = 0.85;
   camera.lowerBetaLimit = 0.25;
-  camera.upperBetaLimit = Math.PI / 2.25;
-  camera.lowerRadiusLimit = 7.0;
-  camera.upperRadiusLimit = 22.0;
+  camera.upperBetaLimit = Math.PI / 2.2;
+  camera.lowerRadiusLimit = 7.5;
+  camera.upperRadiusLimit = 18.0;
   camera.wheelPrecision = 28;
   camera.pinchPrecision = 28;
 
   // 5. Studio 3-Point Lighting Setup with Soft PCF Shadows & Rim Light
-  // Ambient Hemispheric Fill
+  // Ambient Hemispheric Fill - increased for contrast
   const hemiLight = new BABYLON.HemisphericLight('hemiLight', new BABYLON.Vector3(0, 1, 0), scene);
-  hemiLight.intensity = 0.58;
-  hemiLight.groundColor = new BABYLON.Color3(0.18, 0.20, 0.26);
+  hemiLight.intensity = 0.72;
+  hemiLight.groundColor = new BABYLON.Color3(0.22, 0.24, 0.30);
 
   // Key Light (Warm sunlight from upper left)
   const keyLight = new BABYLON.DirectionalLight('keyLight', new BABYLON.Vector3(0.5, -1.3, 0.7), scene);
   keyLight.position = new BABYLON.Vector3(-5.0, 14.0, -7.0);
-  keyLight.intensity = 1.05;
-  keyLight.diffuse = BABYLON.Color3.FromHexString('#fff9f2');
-  keyLight.specular = new BABYLON.Color3(0.35, 0.35, 0.35);
+  keyLight.intensity = 1.25;
+  keyLight.diffuse = BABYLON.Color3.FromHexString('#fff7ed');
+  keyLight.specular = new BABYLON.Color3(0.4, 0.4, 0.4);
 
-  const shadowGen = new BABYLON.ShadowGenerator(2048, keyLight);
+  const shadowGen = new BABYLON.ShadowGenerator(1024, keyLight);
   shadowGen.usePercentageCloserFiltering = true;
   shadowGen.filteringQuality = BABYLON.ShadowGenerator.QUALITY_MEDIUM;
   shadowGen.bias = 0.002;
   shadowGen.normalBias = 0.010;
 
-  // Fill Light (Soft warm fill from opposite side illuminating Black pieces)
+  // Fill Light (More direct fill for better definition)
   const fillLight = new BABYLON.DirectionalLight('fillLight', new BABYLON.Vector3(-0.4, -0.9, -0.6), scene);
   fillLight.position = new BABYLON.Vector3(6.0, 11.0, 7.0);
-  fillLight.intensity = 0.65;
-  fillLight.diffuse = BABYLON.Color3.FromHexString('#faeee3');
-  fillLight.specular = new BABYLON.Color3(0.20, 0.20, 0.20);
+  fillLight.intensity = 0.85;
+  fillLight.diffuse = BABYLON.Color3.FromHexString('#fff4e6');
+  fillLight.specular = new BABYLON.Color3(0.25, 0.25, 0.25);
 
-  // Rim Light (Contour backlight with zero specular to prevent glare on the board)
+  // Rim Light (Stronger contour)
   const rimLight = new BABYLON.DirectionalLight('rimLight', new BABYLON.Vector3(0, -0.75, -1.0), scene);
   rimLight.position = new BABYLON.Vector3(0, 9.0, 10.0);
-  rimLight.intensity = 0.50;
-  rimLight.diffuse = BABYLON.Color3.FromHexString('#dbeafe');
-  rimLight.specular = new BABYLON.Color3(0, 0, 0); // No glare hotspot
+  rimLight.intensity = 0.65;
+  rimLight.diffuse = BABYLON.Color3.FromHexString('#e6f0ff');
+  rimLight.specular = new BABYLON.Color3(0.1, 0.1, 0.1);
 
   // 6. Post-Processing Pipeline (ACES tone mapping, subtle bloom, FXAA)
   const pipeline = new BABYLON.DefaultRenderingPipeline('pipeline', true, scene, [camera]);
   pipeline.fxaaEnabled = true;
   pipeline.bloomEnabled = true;
-  pipeline.bloomThreshold = 0.85;
-  pipeline.bloomWeight = 0.10;
+  pipeline.bloomThreshold = 0.78;
+  pipeline.bloomWeight = 0.08;
   pipeline.bloomKernel = 32;
   pipeline.imageProcessing.toneMappingEnabled = true;
   pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
-  pipeline.imageProcessing.contrast = 1.12;
-  pipeline.imageProcessing.exposure = 1.05;
+  pipeline.imageProcessing.contrast = 1.18;
+  pipeline.imageProcessing.exposure = 1.02;
 
   // 7. Initialize Havok Physics
   await initPhysics(scene);
@@ -184,7 +184,9 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
     if (!moveObj || !moveObj.from || !moveObj.to) {
       if (newFen) {
         lastKnownFen = newFen;
-        syncPiecesFromFen(newFen);
+        try {
+          syncPiecesFromFen(newFen);
+        } catch {}
       }
       return;
     }
@@ -198,55 +200,155 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
     }
 
     const movingPiece = pieceBySquare.get(from);
-    const capturedPiece = pieceBySquare.get(to);
-
-    if (movingPiece) {
-      isMoveAnimating = true;
-      animatingMoveKey = moveKey;
-      pieceBySquare.delete(from);
-
-      // If a piece was captured on target square, remove it from square map and track for graveyard
-      if (capturedPiece && capturedPiece !== movingPiece) {
-        pieceBySquare.delete(to);
-        graveyardPieces.push(capturedPiece);
-      }
-
-      const targetPos = squareToVector3(to);
-      const isKnight = movingPiece.metadata.pieceType === 'n';
-
-      activeAnimationPromise = animatePieceMove(movingPiece, targetPos, {
-        isKnight,
-        capturedPieceMesh: (capturedPiece && capturedPiece !== movingPiece) ? capturedPiece : null,
-        durationMs: 340
-      }).then(() => {
-        movingPiece.metadata.square = to;
-        pieceBySquare.set(to, movingPiece);
-        isMoveAnimating = false;
-        animatingMoveKey = null;
-        activeAnimationPromise = null;
-
-        if (newFen) {
-          lastKnownFen = newFen;
-          syncPiecesFromFen(newFen);
-        }
-      }).catch((err) => {
-        console.error('Move animation error:', err);
-        isMoveAnimating = false;
-        animatingMoveKey = null;
-        activeAnimationPromise = null;
-        if (newFen) {
-          lastKnownFen = newFen;
-          syncPiecesFromFen(newFen);
-        }
-      });
-
-      return activeAnimationPromise;
-    } else {
+    if (!movingPiece) {
       if (newFen) {
         lastKnownFen = newFen;
-        syncPiecesFromFen(newFen);
+        try {
+          syncPiecesFromFen(newFen);
+        } catch {}
+      }
+      return;
+    }
+
+    const pieceType = movingPiece.metadata?.pieceType;
+    const pieceColor = movingPiece.metadata?.color;
+
+    // Detect castling (king moves two squares horizontally)
+    let isCastling = false;
+    let rookFrom = null;
+    let rookTo = null;
+    if (pieceType === 'k') {
+      const fromFile = from.charCodeAt(0);
+      const toFile = to.charCodeAt(0);
+      if (Math.abs(toFile - fromFile) === 2) {
+        isCastling = true;
+        if (to === 'g1' || (pieceColor === 'w' && to === 'g1')) { rookFrom = 'h1'; rookTo = 'f1'; }
+        else if (to === 'c1' || (pieceColor === 'w' && to === 'c1')) { rookFrom = 'a1'; rookTo = 'd1'; }
+        else if (to === 'g8' || (pieceColor === 'b' && to === 'g8')) { rookFrom = 'h8'; rookTo = 'f8'; }
+        else if (to === 'c8' || (pieceColor === 'b' && to === 'c8')) { rookFrom = 'a8'; rookTo = 'd8'; }
+        // Fallback based on position
+        if (!rookFrom) {
+          if (pieceColor === 'w') {
+            if (to === 'g1') { rookFrom = 'h1'; rookTo = 'f1'; }
+            else if (to === 'c1') { rookFrom = 'a1'; rookTo = 'd1'; }
+          } else {
+            if (to === 'g8') { rookFrom = 'h8'; rookTo = 'f8'; }
+            else if (to === 'c8') { rookFrom = 'a8'; rookTo = 'd8'; }
+          }
+        }
       }
     }
+
+    // Detect en passant
+    let isEnPassant = false;
+    let enPassantCaptured = null;
+    let enPassantCapturedSquare = null;
+    if (pieceType === 'p' && !pieceBySquare.get(to)) {
+      // If pawn moves diagonally to empty square, it might be en passant
+      const fromFile = from.charCodeAt(0) - 97; // 'a' to 0
+      const toFile = to.charCodeAt(0) - 97;
+      const fromRank = parseInt(from[1]);
+      const toRank = parseInt(to[1]);
+      if (Math.abs(toFile - fromFile) === 1 && Math.abs(toRank - fromRank) === 1) {
+        // Check if there's a pawn to capture en passant
+        if (pieceColor === 'w') {
+          // White moves up in rank? Wait - in chess, white moves from rank 2 to rank 8, so increasing rank number
+          // But looking at how squares work - in our coords, rank increases upward? Let us check
+          enPassantCapturedSquare = String.fromCharCode(97 + toFile) + fromRank;
+        } else {
+          enPassantCapturedSquare = String.fromCharCode(97 + toFile) + fromRank;
+        }
+        enPassantCaptured = pieceBySquare.get(enPassantCapturedSquare);
+        if (enPassantCaptured && enPassantCaptured.metadata?.pieceType === 'p' && enPassantCaptured.metadata?.color !== pieceColor) {
+          isEnPassant = true;
+        }
+      }
+    }
+
+    const capturedPiece = isEnPassant ? enPassantCaptured : pieceBySquare.get(to);
+    const movingRook = isCastling && rookFrom ? pieceBySquare.get(rookFrom) : null;
+
+    isMoveAnimating = true;
+    animatingMoveKey = moveKey;
+    try {
+      pieceBySquare.delete(from);
+      if (movingRook && rookFrom) {
+        pieceBySquare.delete(rookFrom);
+      }
+    } catch {}
+
+    // If a piece was captured on target square (not castling), remove it
+    if (capturedPiece && capturedPiece !== movingPiece && !isCastling) {
+      if (isEnPassant && enPassantCapturedSquare) {
+        try { pieceBySquare.delete(enPassantCapturedSquare); } catch {}
+      } else {
+        try { pieceBySquare.delete(to); } catch {}
+      }
+      // Clear square metadata so it's recognized as captured/graveyard
+      if (capturedPiece.metadata) capturedPiece.metadata.square = null;
+      try { graveyardPieces.push(capturedPiece); } catch {}
+    }
+
+    const targetPos = squareToVector3(to);
+    const isKnight = pieceType === 'n';
+
+    const kingAnimPromise = animatePieceMove(movingPiece, targetPos, {
+      isKnight,
+      capturedPieceMesh: (capturedPiece && capturedPiece !== movingPiece && !isCastling) ? capturedPiece : null,
+      durationMs: 340
+    });
+
+    let rookAnimPromise = null;
+    if (isCastling && movingRook && rookTo) {
+      try {
+        const rookTargetPos = squareToVector3(rookTo);
+        rookAnimPromise = animatePieceMove(movingRook, rookTargetPos, {
+          isKnight: false,
+          capturedPieceMesh: null,
+          durationMs: 320
+        });
+      } catch (e) {
+        console.error('rook anim error:', e);
+      }
+    }
+
+    activeAnimationPromise = Promise.all([kingAnimPromise, rookAnimPromise].filter(Boolean)).then(() => {
+      try {
+        if (movingPiece && movingPiece.metadata) {
+          movingPiece.metadata.square = to;
+        }
+        pieceBySquare.set(to, movingPiece);
+      } catch {}
+      if (isCastling && movingRook && rookTo) {
+        try {
+          if (movingRook.metadata) movingRook.metadata.square = rookTo;
+          pieceBySquare.set(rookTo, movingRook);
+        } catch {}
+      }
+      isMoveAnimating = false;
+      animatingMoveKey = null;
+      activeAnimationPromise = null;
+
+      if (newFen) {
+        lastKnownFen = newFen;
+        try {
+          syncPiecesFromFen(newFen);
+        } catch {}
+      }
+    }).catch((err) => {
+      console.error('Move animation error:', err);
+      isMoveAnimating = false;
+      animatingMoveKey = null;
+      activeAnimationPromise = null;
+      if (newFen) {
+        lastKnownFen = newFen;
+        try {
+          syncPiecesFromFen(newFen);
+        } catch {}
+      }
+    });
+
+    return activeAnimationPromise;
   }
 
   // 12. Smart State Synchronization
@@ -286,7 +388,18 @@ export async function createBoard3DWorld(containerEl, appCallbacks) {
     // immediately prior to calling board3d.animateMove().
     // If lastMove is present and pieceBySquare has the piece at lastMove.from,
     // this move is about to be animated by animateMove(). Do NOT wipe pieces with syncPiecesFromFen()!
-    const isPendingMove = lastMove && lastMove.from && lastMove.to && pieceBySquare.has(lastMove.from);
+    let isPendingMove = lastMove && lastMove.from && lastMove.to && pieceBySquare.has(lastMove.from);
+    // Also check for castling - king moves from from to to (2 squares)
+    if (!isPendingMove && lastMove && lastMove.from && lastMove.to) {
+      const movingPiece = pieceBySquare.get(lastMove.from);
+      if (movingPiece && movingPiece.metadata?.pieceType === 'k') {
+        const fromFile = lastMove.from.charCodeAt(0);
+        const toFile = lastMove.to.charCodeAt(0);
+        if (Math.abs(toFile - fromFile) === 2) {
+          isPendingMove = true;
+        }
+      }
+    }
 
     if (fen && fen !== lastKnownFen && !isMoveAnimating && !isPendingMove) {
       lastKnownFen = fen;

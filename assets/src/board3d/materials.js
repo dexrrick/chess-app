@@ -96,29 +96,29 @@ export function createMaterials(scene) {
   brass.metallic = 0.85;
   brass.roughness = 0.24;
 
-  // 6. White Pieces: Polished Honey Boxwood / Natural Ivory
+  // 6. White Pieces: Matte Ivory with Better Definition
   const whitePiece = new BABYLON.PBRMaterial('mat_white_piece', scene);
-  whitePiece.albedoColor = BABYLON.Color3.FromHexString('#f4e8d3');
-  whitePiece.roughness = 0.26;
-  whitePiece.metallic = 0.01;
+  whitePiece.albedoColor = BABYLON.Color3.FromHexString('#e8dcc5');
+  whitePiece.roughness = 0.38;
+  whitePiece.metallic = 0.0;
   whitePiece.clearCoat.isEnabled = true;
-  whitePiece.clearCoat.roughness = 0.22;
-  whitePiece.clearCoat.intensity = 0.35;
+  whitePiece.clearCoat.roughness = 0.42;
+  whitePiece.clearCoat.intensity = 0.18;
   whitePiece.subSurface.isTranslucencyEnabled = true;
-  whitePiece.subSurface.translucencyIntensity = 0.22;
-  whitePiece.subSurface.tintColor = BABYLON.Color3.FromHexString('#ffeed0');
+  whitePiece.subSurface.translucencyIntensity = 0.10;
+  whitePiece.subSurface.tintColor = BABYLON.Color3.FromHexString('#f5efe0');
 
-  // 7. Black Pieces: Rich Roasted Walnut / Ebonized Hardwood
+  // 7. Black Pieces: Ebonized Hardwood with Definition
   const blackPiece = new BABYLON.PBRMaterial('mat_black_piece', scene);
-  blackPiece.albedoColor = BABYLON.Color3.FromHexString('#3a261a');
-  blackPiece.roughness = 0.24;
-  blackPiece.metallic = 0.03;
+  blackPiece.albedoColor = BABYLON.Color3.FromHexString('#251a12');
+  blackPiece.roughness = 0.32;
+  blackPiece.metallic = 0.02;
   blackPiece.clearCoat.isEnabled = true;
-  blackPiece.clearCoat.roughness = 0.20;
-  blackPiece.clearCoat.intensity = 0.40;
+  blackPiece.clearCoat.roughness = 0.36;
+  blackPiece.clearCoat.intensity = 0.22;
   blackPiece.subSurface.isTranslucencyEnabled = true;
-  blackPiece.subSurface.translucencyIntensity = 0.16;
-  blackPiece.subSurface.tintColor = BABYLON.Color3.FromHexString('#5c3016');
+  blackPiece.subSurface.translucencyIntensity = 0.08;
+  blackPiece.subSurface.tintColor = BABYLON.Color3.FromHexString('#4a2f1c');
 
   // 8. Tournament Green Velvet Felt (for piece bases & capture trays)
   const felt = new BABYLON.PBRMaterial('mat_felt', scene);
@@ -146,9 +146,9 @@ export function createMaterials(scene) {
   captureRing.disableLighting = true;
 
   const lastMove = new BABYLON.StandardMaterial('mat_highlight_lastmove', scene);
-  lastMove.diffuseColor = BABYLON.Color3.FromHexString('#f59e0b');
-  lastMove.emissiveColor = BABYLON.Color3.FromHexString('#d97706');
-  lastMove.alpha = 0.40;
+  lastMove.diffuseColor = BABYLON.Color3.FromHexString('#fbbf24');
+  lastMove.emissiveColor = BABYLON.Color3.FromHexString('#f59e0b');
+  lastMove.alpha = 0.55;
   lastMove.disableLighting = true;
 
   const checkPulse = new BABYLON.StandardMaterial('mat_highlight_check', scene);
